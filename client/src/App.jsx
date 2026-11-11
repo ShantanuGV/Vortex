@@ -14,6 +14,7 @@ export default function App() {
     totalPages,
     setCurrentPage,
     activeSpeakerId,
+    micVolume,
     telemetry,
     isHost,
     roomSettings,
@@ -21,6 +22,7 @@ export default function App() {
     updateRoomSettings,
     hostMuteAll,
     hostKickPeer,
+    hostEndMeeting,
     updatePersonalSettings,
     isAudioMuted,
     isVideoOff,
@@ -73,6 +75,7 @@ export default function App() {
           totalPages={totalPages}
           setCurrentPage={setCurrentPage}
           activeSpeakerId={activeSpeakerId}
+          micVolume={micVolume}
           telemetry={telemetry}
           chatMessages={chatMessages}
           roomSettings={roomSettings}
@@ -80,6 +83,7 @@ export default function App() {
           onUpdateRoomSettings={updateRoomSettings}
           onHostMuteAll={hostMuteAll}
           onHostKickPeer={hostKickPeer}
+          onHostEndMeeting={hostEndMeeting}
           onUpdatePersonalSettings={updatePersonalSettings}
           onToggleAudio={toggleAudio}
           onToggleVideo={toggleVideo}

@@ -22,6 +22,7 @@ export default function MeetingRoom({
   totalPages,
   setCurrentPage,
   activeSpeakerId,
+  micVolume,
   telemetry,
   chatMessages,
   roomSettings,
@@ -29,6 +30,7 @@ export default function MeetingRoom({
   onUpdateRoomSettings,
   onHostMuteAll,
   onHostKickPeer,
+  onHostEndMeeting,
   onUpdatePersonalSettings,
   onToggleAudio,
   onToggleVideo,
@@ -68,8 +70,10 @@ export default function MeetingRoom({
         roomSettings={roomSettings}
         onUpdateRoomSettings={onUpdateRoomSettings}
         onHostMuteAll={onHostMuteAll}
+        onHostEndMeeting={onHostEndMeeting}
         personalSettings={personalSettings}
         onUpdatePersonalSettings={onUpdatePersonalSettings}
+        micVolume={micVolume}
       />
 
       {/* Scalability & Telemetry HUD */}
@@ -98,6 +102,7 @@ export default function MeetingRoom({
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             activeSpeakerId={activeSpeakerId}
+            personalSettings={personalSettings}
           />
         </div>
 

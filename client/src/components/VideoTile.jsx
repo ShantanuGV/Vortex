@@ -11,17 +11,48 @@ export default function VideoTile({
   isPinned = false,
   isSpeaking = false,
   isHandRaised = false,
+  mirrorVideo = true,
+  lightingBoost = false,
+  backgroundEffect = 'none', // 'none' | 'slight-blur' | 'heavy-blur'
   onPin = () => {}
 }) {
   const videoRef = useRef(null);
+  const audioRef = useRef(null);
 
+  // Attach stream to both video and dedicated audio elements
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    if (videoRef.current) {
+      if (stream) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      } else {
+        videoRef.current.srcObject = null;
+      }
     }
-  }, [stream]);
+
+    // Remote audio playback via dedicated audio element
+    if (audioRef.current && !isLocal) {
+      if (stream && stream.getAudioTracks().length > 0) {
+        audioRef.current.srcObject = stream;
+        audioRef.current.play().catch(() => {});
+      } else {
+        audioRef.current.srcObject = null;
+      }
+    }
+  }, [stream, isLocal]);
 
   const initial = userName ? userName.charAt(0).toUpperCase() : '?';
+
+  // Video filter computation (Lighting Boost & Background Blur)
+  let videoFilter = 'none';
+  if (backgroundEffect === 'slight-blur') {
+    videoFilter = 'blur(4px)';
+  } else if (backgroundEffect === 'heavy-blur') {
+    videoFilter = 'blur(10px)';
+  }
+  if (lightingBoost) {
+    videoFilter = videoFilter === 'none' ? 'brightness(1.25) contrast(1.1)' : `${videoFilter} brightness(1.25) contrast(1.1)`;
+  }
 
   return (
     <div
@@ -44,18 +75,30 @@ export default function VideoTile({
         border: '1px solid #4a4d51'
       }}
     >
-      {/* Video element */}
+      {/* Dedicated Audio Element for Remote Peers */}
+      {!isLocal && (
+        <audio
+          ref={audioRef}
+          autoPlay
+          playsInline
+        />
+      )}
+
+      {/* Video element - Kept mounted with visibility toggle so Chrome never suspends audio */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isLocal}
+        muted={isLocal} // Local video must be muted to avoid feedback loop
         style={{
           width: '100%',
           height: '100%',
           objectFit: isScreenSharing ? 'contain' : 'cover',
-          transform: isLocal && !isScreenSharing ? 'scaleX(-1)' : 'none',
-          display: isVideoOff ? 'none' : 'block'
+          transform: isLocal && !isScreenSharing && mirrorVideo ? 'scaleX(-1)' : 'none',
+          opacity: isVideoOff ? 0 : 1,
+          filter: videoFilter,
+          pointerEvents: isVideoOff ? 'none' : 'auto',
+          transition: 'opacity 0.2s ease'
         }}
       />
 
@@ -63,11 +106,15 @@ export default function VideoTile({
       {isVideoOff && (
         <div
           style={{
+            position: 'absolute',
+            inset: 0,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '12px'
+            gap: '12px',
+            backgroundColor: '#3c4043',
+            zIndex: 2
           }}
         >
           <div
@@ -82,7 +129,7 @@ export default function VideoTile({
               justifyContent: 'center',
               fontSize: '36px',
               fontWeight: '600',
-              boxShadow: isSpeaking ? '0 0 20px rgba(26, 115, 232, 0.8)' : '0 4px 12px rgba(0,0,0,0.4)',
+              boxShadow: isSpeaking ? '0 0 24px rgba(26, 115, 232, 0.9)' : '0 4px 12px rgba(0,0,0,0.4)',
               transition: 'background-color 0.2s, box-shadow 0.2s'
             }}
           >
@@ -111,7 +158,8 @@ export default function VideoTile({
             gap: '4px',
             fontSize: '12px',
             fontWeight: '600',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.4)'
+            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+            zIndex: 4
           }}
         >
           <Hand size={14} /> Raised hand
@@ -137,7 +185,8 @@ export default function VideoTile({
           justifyContent: 'center',
           cursor: 'pointer',
           backdropFilter: 'blur(4px)',
-          transition: 'all 0.2s'
+          transition: 'all 0.2s',
+          zIndex: 4
         }}
       >
         <Pin size={16} />
@@ -156,7 +205,8 @@ export default function VideoTile({
           alignItems: 'center',
           gap: '8px',
           backdropFilter: 'blur(4px)',
-          maxWidth: 'calc(100% - 24px)'
+          maxWidth: 'calc(100% - 24px)',
+          zIndex: 4
         }}
       >
         <span

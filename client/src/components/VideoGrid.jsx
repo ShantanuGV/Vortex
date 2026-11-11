@@ -14,7 +14,8 @@ export default function VideoGrid({
   currentPage,
   totalPages,
   onPageChange,
-  activeSpeakerId
+  activeSpeakerId,
+  personalSettings
 }) {
   const [pinnedId, setPinnedId] = useState(null);
 
@@ -59,6 +60,9 @@ export default function VideoGrid({
               isLocal={true}
               isScreenSharing={isScreenSharing}
               isHandRaised={isHandRaised}
+              mirrorVideo={personalSettings?.mirrorVideo ?? true}
+              lightingBoost={personalSettings?.lightingBoost ?? false}
+              backgroundEffect={personalSettings?.backgroundEffect || 'none'}
               isPinned={true}
               onPin={() => handleTogglePin('local')}
             />
@@ -99,6 +103,9 @@ export default function VideoGrid({
                 isLocal={true}
                 isScreenSharing={isScreenSharing}
                 isHandRaised={isHandRaised}
+                mirrorVideo={personalSettings?.mirrorVideo ?? true}
+                lightingBoost={personalSettings?.lightingBoost ?? false}
+                backgroundEffect={personalSettings?.backgroundEffect || 'none'}
                 isPinned={false}
                 onPin={() => handleTogglePin('local')}
               />
@@ -206,6 +213,9 @@ export default function VideoGrid({
             isLocal={true}
             isScreenSharing={isScreenSharing}
             isHandRaised={isHandRaised}
+            mirrorVideo={personalSettings?.mirrorVideo ?? true}
+            lightingBoost={personalSettings?.lightingBoost ?? false}
+            backgroundEffect={personalSettings?.backgroundEffect || 'none'}
             isPinned={false}
             onPin={() => handleTogglePin('local')}
           />

@@ -17,8 +17,6 @@ const DEFAULT_PAGE_SIZE = 6;
 
 export function useWebRTC() {
   const [localStream, setLocalStream] = useState(null);
-  
-  // Full room participant directory (can hold 500+ users with negligible overhead)
   const [roster, setRoster] = useState({});
   const [remoteStreams, setRemoteStreams] = useState({});
   
@@ -43,8 +41,13 @@ export function useWebRTC() {
         videoInputDeviceId: '',
         sendResolution: '720p',
         receiveResolution: 'auto',
+        framerate: 30,
         noiseCancellation: true,
+        echoCancellation: true,
+        autoGainControl: true,
         mirrorVideo: true,
+        lightingBoost: false,
+        backgroundEffect: 'none', // 'none' | 'slight-blur' | 'heavy-blur'
         defaultAudioMuted: false,
         defaultVideoOff: false
       };
@@ -52,8 +55,13 @@ export function useWebRTC() {
       return {
         sendResolution: '720p',
         receiveResolution: 'auto',
+        framerate: 30,
         noiseCancellation: true,
-        mirrorVideo: true
+        echoCancellation: true,
+        autoGainControl: true,
+        mirrorVideo: true,
+        lightingBoost: false,
+        backgroundEffect: 'none'
       };
     }
   });
@@ -62,6 +70,7 @@ export function useWebRTC() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [activeSpeakerId, setActiveSpeakerId] = useState(null);
+  const [micVolume, setMicVolume] = useState(0); // 0 to 1 for live meter
 
   // Media toggle states
   const [isAudioMuted, setIsAudioMuted] = useState(false);
@@ -75,20 +84,20 @@ export function useWebRTC() {
 
   const socketRef = useRef(null);
   const peerConnections = useRef({}); // peerId -> RTCPeerConnection
+  const remoteStreamsRef = useRef({}); // peerId -> MediaStream (persistent)
   const screenTrackRef = useRef(null);
   const localStreamRef = useRef(null);
-  const pendingCandidates = useRef({});
+  const pendingCandidates = useRef({}); // peerId -> Array of RTCIceCandidate
   const audioContextRef = useRef(null);
   const vadIntervalRef = useRef(null);
 
-  // Initialize or acquire Local MediaStream with resolution constraints from personalSettings
+  // Initialize or acquire Local MediaStream with resolution constraints
   const getMediaStream = useCallback(async (overrides = {}) => {
     const settings = { ...personalSettings, ...overrides };
     
     let videoConstraints = {
       facingMode: 'user',
-      width: { ideal: 1280 },
-      height: { ideal: 720 }
+      frameRate: { ideal: settings.framerate || 30 }
     };
 
     if (settings.sendResolution === '360p') {
@@ -97,6 +106,9 @@ export function useWebRTC() {
     } else if (settings.sendResolution === '180p') {
       videoConstraints.width = { ideal: 320 };
       videoConstraints.height = { ideal: 180 };
+    } else {
+      videoConstraints.width = { ideal: 1280 };
+      videoConstraints.height = { ideal: 720 };
     }
 
     if (settings.videoInputDeviceId) {
@@ -104,9 +116,9 @@ export function useWebRTC() {
     }
 
     const audioConstraints = {
-      echoCancellation: true,
+      echoCancellation: settings.echoCancellation ?? true,
       noiseSuppression: settings.noiseCancellation ?? true,
-      autoGainControl: true
+      autoGainControl: settings.autoGainControl ?? true
     };
     if (settings.audioInputDeviceId) {
       audioConstraints.deviceId = { exact: settings.audioInputDeviceId };
@@ -140,11 +152,14 @@ export function useWebRTC() {
     }
   }, [personalSettings]);
 
-  // Voice Activity Detection (VAD)
+  // Voice Activity Detection (VAD) & Live Mic Volume Meter
   const startVAD = useCallback((stream) => {
     if (!stream || stream.getAudioTracks().length === 0) return;
 
     try {
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+      }
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       audioContextRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
@@ -154,21 +169,25 @@ export function useWebRTC() {
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-      vadIntervalRef.current = setInterval(() => {
-        if (!socketRef.current || isAudioMuted) return;
+      if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
 
+      vadIntervalRef.current = setInterval(() => {
         analyser.getByteFrequencyData(dataArray);
         let sum = 0;
         for (let i = 0; i < dataArray.length; i++) {
           sum += dataArray[i];
         }
         const average = sum / dataArray.length;
-        const normalized = Math.min(1, average / 128);
+        const normalized = Math.min(1, average / 100);
 
-        if (normalized > 0.12) {
+        setMicVolume(isAudioMuted ? 0 : normalized);
+
+        if (!socketRef.current || isAudioMuted) return;
+
+        if (normalized > 0.15) {
           socketRef.current.emit('speaking-level', { level: normalized });
         }
-      }, 150);
+      }, 100);
     } catch (e) {
       console.warn('[VAD] Audio analyzer unavailable:', e);
     }
@@ -185,6 +204,7 @@ export function useWebRTC() {
       delete peerConnections.current[peerId];
     }
     delete pendingCandidates.current[peerId];
+    delete remoteStreamsRef.current[peerId];
     setRemoteStreams((prev) => {
       const copy = { ...prev };
       delete copy[peerId];
@@ -192,7 +212,23 @@ export function useWebRTC() {
     });
   }, []);
 
-  // Create PeerConnection
+  // Process queued ICE candidates after remote description is established
+  const processPendingCandidates = useCallback(async (peerId) => {
+    const pc = peerConnections.current[peerId];
+    if (pc && pc.remoteDescription && pendingCandidates.current[peerId]) {
+      const candidates = pendingCandidates.current[peerId];
+      pendingCandidates.current[peerId] = [];
+      for (const candidate of candidates) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.warn('[WebRTC] ICE candidate error:', e);
+        }
+      }
+    }
+  }, []);
+
+  // Create PeerConnection with Stable Multi-Track Streaming
   const createPeerConnection = useCallback((peerId, targetUserName) => {
     if (peerConnections.current[peerId]) {
       return peerConnections.current[peerId];
@@ -201,6 +237,7 @@ export function useWebRTC() {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnections.current[peerId] = pc;
 
+    // Attach local stream tracks to PC
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current);
@@ -216,15 +253,36 @@ export function useWebRTC() {
       }
     };
 
+    // Stable Multi-Track Handler: Creates or updates persistent MediaStream
     pc.ontrack = (event) => {
-      const [remoteStream] = event.streams;
+      console.log(`[WebRTC] Received ${event.track.kind} track from ${targetUserName || peerId}`);
+      
+      let peerStream = remoteStreamsRef.current[peerId];
+      if (!peerStream) {
+        peerStream = new MediaStream();
+        remoteStreamsRef.current[peerId] = peerStream;
+      }
+
+      // Add track to persistent stream
+      peerStream.addTrack(event.track);
+
+      // Force React state update by creating a new MediaStream container with all tracks
+      const updatedStream = new MediaStream(peerStream.getTracks());
       setRemoteStreams((prev) => ({
         ...prev,
-        [peerId]: remoteStream
+        [peerId]: updatedStream
       }));
+
+      event.track.onunmute = () => {
+        setRemoteStreams((prev) => ({
+          ...prev,
+          [peerId]: new MediaStream(peerStream.getTracks())
+        }));
+      };
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Connection with ${peerId}: ${pc.connectionState}`);
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         cleanupPeer(peerId);
       }
@@ -232,20 +290,6 @@ export function useWebRTC() {
 
     return pc;
   }, [cleanupPeer]);
-
-  const processPendingCandidates = useCallback(async (peerId) => {
-    const pc = peerConnections.current[peerId];
-    if (pc && pendingCandidates.current[peerId]) {
-      while (pendingCandidates.current[peerId].length > 0) {
-        const candidate = pendingCandidates.current[peerId].shift();
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.warn('[WebRTC] ICE candidate error:', e);
-        }
-      }
-    }
-  }, []);
 
   // Compute visible peers based on pagination and active speaker
   const peerList = useMemo(() => Object.values(roster), [roster]);
@@ -263,6 +307,7 @@ export function useWebRTC() {
   }, [peerList, currentPage, pageSize, activeSpeakerId, roster]);
 
   // Synchronize active WebRTC connections with visible page
+  // Uses Deterministic Initiator (socket.id < peerId) to eliminate SDP glare collisions!
   useEffect(() => {
     if (!isConnected || !socketRef.current) return;
 
@@ -270,19 +315,26 @@ export function useWebRTC() {
       if (!peerConnections.current[peerId]) {
         const peer = roster[peerId];
         const pc = createPeerConnection(peerId, peer?.userName);
-        try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socketRef.current.emit('offer', {
-            targetPeerId: peerId,
-            sdp: offer
-          });
-        } catch (err) {
-          console.error('[WebRTC] Offer error:', err);
+
+        // Deterministic Initiator: Only the peer with lower socket ID initiates the offer
+        const shouldInitiate = socketRef.current.id < peerId;
+        if (shouldInitiate) {
+          try {
+            console.log(`[WebRTC] Initiating offer to ${peerId} (socket.id is lower)`);
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socketRef.current.emit('offer', {
+              targetPeerId: peerId,
+              sdp: offer
+            });
+          } catch (err) {
+            console.error('[WebRTC] Offer initiation error:', err);
+          }
         }
       }
     });
 
+    // Cleanup peers that left the visible page
     Object.keys(peerConnections.current).forEach((peerId) => {
       if (!visiblePeerIds.has(peerId)) {
         cleanupPeer(peerId);
@@ -374,6 +426,11 @@ export function useWebRTC() {
       leaveRoom();
     });
 
+    socket.on('meeting-ended-by-host', ({ message }) => {
+      alert(message || 'The meeting was ended for everyone by the host.');
+      leaveRoom();
+    });
+
     socket.on('host-changed', ({ newHostId, newHostName }) => {
       setHostId(newHostId);
       const amIHost = socket.id === newHostId;
@@ -441,10 +498,22 @@ export function useWebRTC() {
       });
     });
 
-    // WebRTC Offer/Answer
+    // WebRTC Offer Handler with Glare Recovery
     socket.on('offer', async ({ callerPeerId, sdp, userName: callerName }) => {
+      console.log(`[WebRTC] Received offer from ${callerName} (${callerPeerId})`);
       const pc = createPeerConnection(callerPeerId, callerName);
+
       try {
+        // If an offer collision occurs (glare)
+        if (pc.signalingState !== 'stable') {
+          console.warn(`[WebRTC] Glare detected on offer from ${callerPeerId}, state: ${pc.signalingState}`);
+          if (socket.id < callerPeerId) {
+            console.log('[WebRTC] Impolite peer ignoring incoming offer');
+            return;
+          }
+          await pc.setLocalDescription({ type: 'rollback' });
+        }
+
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
         await processPendingCandidates(callerPeerId);
 
@@ -456,22 +525,29 @@ export function useWebRTC() {
           sdp: answer
         });
       } catch (err) {
-        console.error('[WebRTC] Offer error:', err);
+        console.error('[WebRTC] Offer handling error:', err);
       }
     });
 
+    // WebRTC Answer Handler
     socket.on('answer', async ({ responderPeerId, sdp }) => {
+      console.log(`[WebRTC] Received answer from ${responderPeerId}`);
       const pc = peerConnections.current[responderPeerId];
       if (pc) {
         try {
-          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-          await processPendingCandidates(responderPeerId);
+          if (pc.signalingState === 'have-local-offer') {
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            await processPendingCandidates(responderPeerId);
+          } else {
+            console.warn(`[WebRTC] Received answer in unexpected state: ${pc.signalingState}`);
+          }
         } catch (err) {
           console.error('[WebRTC] Answer error:', err);
         }
       }
     });
 
+    // ICE Candidate Handler with Buffering
     socket.on('ice-candidate', async ({ senderPeerId, candidate }) => {
       const pc = peerConnections.current[senderPeerId];
       if (pc && pc.remoteDescription && pc.remoteDescription.type) {
@@ -643,6 +719,13 @@ export function useWebRTC() {
     }
   }, [isHost]);
 
+  const hostEndMeeting = useCallback(() => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('host-end-meeting');
+    }
+  }, [isHost]);
+
   // --- Personal Settings Updates ---
 
   const updatePersonalSettings = useCallback(async (partial) => {
@@ -654,12 +737,14 @@ export function useWebRTC() {
       console.warn('Failed to save personal settings to localStorage:', e);
     }
 
-    // If hardware devices or resolutions changed, refresh active local stream
+    // Dynamic hardware or resolution switch
     if (
       partial.audioInputDeviceId !== undefined ||
       partial.videoInputDeviceId !== undefined ||
       partial.sendResolution !== undefined ||
-      partial.noiseCancellation !== undefined
+      partial.framerate !== undefined ||
+      partial.noiseCancellation !== undefined ||
+      partial.echoCancellation !== undefined
     ) {
       const newStream = await getMediaStream(updated);
       if (newStream) {
@@ -746,6 +831,7 @@ export function useWebRTC() {
     remoteStreams,
     visiblePeerIds,
     activeSpeakerId,
+    micVolume,
     currentPage,
     totalPages,
     setCurrentPage,
@@ -758,6 +844,7 @@ export function useWebRTC() {
     updateRoomSettings,
     hostMuteAll,
     hostKickPeer,
+    hostEndMeeting,
     updatePersonalSettings,
     // Media Controls
     isAudioMuted,

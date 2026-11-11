@@ -324,6 +324,23 @@ io.on('connection', (socket) => {
     });
   });
 
+  // 4b. Admin / Host: End Meeting For All
+  socket.on('host-end-meeting', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    if (socket.id !== room.hostId) return;
+
+    console.log(`[Admin] Host ended meeting "${roomId}" for everyone.`);
+    io.to(roomId).emit('meeting-ended-by-host', {
+      message: 'The meeting was ended for everyone by the host.'
+    });
+
+    if (room.flushTimer) clearTimeout(room.flushTimer);
+    rooms.delete(roomId);
+  });
+
   // 5. Paginated Peers for Selective Video
   socket.on('get-page-peers', ({ page = 1, pageSize = 6 }) => {
     const roomId = socket.roomId;
