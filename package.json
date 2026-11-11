@@ -1,0 +1,13 @@
+{
+  "name": "gmeet-rea-lab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Google Meet Reverse Engineering & Reconstruction with REA",
+  "scripts": {
+    "server": "npm --prefix server start",
+    "client": "npm --prefix client run dev",
+    "rea:audit": "npx rea-agents evaluate-reconstruction-coverage .rea/reconstruction-ledger.json",
+    "rea:doctor": "npx rea-agents doctor"
+  }
+}
+

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://rea.tools/schemas/reconstruction-ledger-v1.json",
+  "project": "Google Meet Reverse Engineering & Reconstruction",
+  "tool": "morluto/rea@6.7.0",
+  "target": "Google Meet (web client)",
+  "reconstruction_strategy": "Clean-Room WebRTC Implementation with REA-driven Protocol Parity",
+  "obligations": [
+    {
+      "id": "SIG-001",
+      "category": "Signaling & Room Lifecycle",
+      "title": "Room Creation, Validation & Peer Join Flow",
+      "target_behavior": "Client requests room access with room ID (e.g. xxx-yyyy-zzz), signaling server tracks room participants, emits peer joined events, and maintains participant directory.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "server/index.js: join-room event with room Map state and member broadcast",
+      "verified": true
+    },
+    {
+      "id": "SIG-002",
+      "category": "Signaling & Protocol",
+      "title": "SDP Offer / Answer & ICE Candidate Relay",
+      "target_behavior": "WebRTC session negotiation via WebSocket/Socket.io relay exchanging JSEP SDP descriptions and STUN ICE candidates between peers.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "server/index.js: offer, answer, ice-candidate socket handlers",
+      "verified": true
+    },
+    {
+      "id": "RTC-001",
+      "category": "Media Engine",
+      "title": "MediaStream Acquisition & Device Permissions",
+      "target_behavior": "Acquire user audio and video tracks via navigator.mediaDevices.getUserMedia with fallback handling for permission denial.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/hooks/useWebRTC.js: getMediaStream with echoCancellation and noiseSuppression",
+      "verified": true
+    },
+    {
+      "id": "RTC-002",
+      "category": "Media Engine",
+      "title": "STUN NAT Traversal & Multi-Peer Connection Mesh",
+      "target_behavior": "Configures Google's public STUN server (stun.l.google.com:19302) to establish direct P2P audio/video media streams across NATs.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/hooks/useWebRTC.js: ICE servers configuration",
+      "verified": true
+    },
+    {
+      "id": "RTC-003",
+      "category": "Media Engine",
+      "title": "Mute/Unmute & Camera Track Toggle",
+      "target_behavior": "Client enables/disables MediaStreamTrack without renegotiating the peer connection; notifies other peers to update their UI indicator.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/hooks/useWebRTC.js: toggleAudio & toggleVideo",
+      "verified": true
+    },
+    {
+      "id": "RTC-004",
+      "category": "Media Engine",
+      "title": "Screen Sharing Integration",
+      "target_behavior": "Acquires screen track via navigator.mediaDevices.getDisplayMedia and replaces video sender tracks in RTCPeerConnection.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/hooks/useWebRTC.js: toggleScreenShare & sender track replacement",
+      "verified": true
+    },
+    {
+      "id": "UI-001",
+      "category": "User Experience",
+      "title": "Google Meet Dark Theme & Control Bar",
+      "target_behavior": "Authentic bottom pill controls (mic, camera, captions/screen, chat, participants, leave call button) with clock and meeting code banner.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/components/Controls.jsx & client/src/components/MeetingRoom.jsx",
+      "verified": true
+    },
+    {
+      "id": "UI-002",
+      "category": "User Experience",
+      "title": "Adaptive Participant Video Grid",
+      "target_behavior": "Dynamic grid layout automatically scaling 1, 2, 3, 4, 6+ participants with user avatars when video is off and active speaker indicators.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/components/VideoGrid.jsx",
+      "verified": true
+    },
+    {
+      "id": "UI-003",
+      "category": "User Experience",
+      "title": "Pre-Join Lobby (Green Room)",
+      "target_behavior": "User checks camera preview, tests mic/camera toggle, sets display name, and enters or generates room code before joining.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/components/Lobby.jsx",
+      "verified": true
+    },
+    {
+      "id": "CHAT-001",
+      "category": "Collaboration",
+      "title": "In-Meeting Realtime Chat & Participant List",
+      "target_behavior": "Slide-out panel for participant roster and real-time chat broadcast during the call.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/components/ChatPanel.jsx & client/src/components/ParticipantsPanel.jsx",
+      "verified": true
+    }
+  ]
+}
+
