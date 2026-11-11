@@ -9,9 +9,11 @@ const ICE_SERVERS = {
   ]
 };
 
-const SIGNALING_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5000' 
-  : `http://${window.location.hostname}:5000`;
+const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || (
+  typeof window !== 'undefined'
+    ? (window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin)
+    : 'http://localhost:5000'
+);
 
 const DEFAULT_PAGE_SIZE = 6;
 

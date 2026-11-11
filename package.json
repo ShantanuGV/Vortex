@@ -1,9 +1,11 @@
 {
-  "name": "gmeet-rea-lab",
+  "name": "vortex-meet",
   "version": "1.0.0",
   "private": true,
-  "description": "Google Meet Reverse Engineering & Reconstruction with REA",
+  "description": "VORTEX Video Collaboration Platform",
   "scripts": {
+    "build": "npm install --prefix server && npm install --prefix client && npm run --prefix client build",
+    "start": "npm --prefix server start",
     "server": "npm --prefix server start",
     "client": "npm --prefix client run dev",
     "rea:audit": "npx rea-agents evaluate-reconstruction-coverage .rea/reconstruction-ledger.json",
