@@ -15,6 +15,13 @@ export default function App() {
     setCurrentPage,
     activeSpeakerId,
     telemetry,
+    isHost,
+    roomSettings,
+    personalSettings,
+    updateRoomSettings,
+    hostMuteAll,
+    hostKickPeer,
+    updatePersonalSettings,
     isAudioMuted,
     isVideoOff,
     isScreenSharing,
@@ -55,6 +62,7 @@ export default function App() {
           localStream={localStream}
           userName={userName}
           roomId={roomId}
+          isHost={isHost}
           isAudioMuted={isAudioMuted}
           isVideoOff={isVideoOff}
           isScreenSharing={isScreenSharing}
@@ -67,6 +75,12 @@ export default function App() {
           activeSpeakerId={activeSpeakerId}
           telemetry={telemetry}
           chatMessages={chatMessages}
+          roomSettings={roomSettings}
+          personalSettings={personalSettings}
+          onUpdateRoomSettings={updateRoomSettings}
+          onHostMuteAll={hostMuteAll}
+          onHostKickPeer={hostKickPeer}
+          onUpdatePersonalSettings={updatePersonalSettings}
           onToggleAudio={toggleAudio}
           onToggleVideo={toggleVideo}
           onToggleScreenShare={toggleScreenShare}

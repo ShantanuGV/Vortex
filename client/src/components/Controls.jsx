@@ -12,11 +12,14 @@ import {
   Copy,
   Check,
   Hand,
-  Activity
+  Activity,
+  Settings as SettingsIcon,
+  ShieldCheck
 } from 'lucide-react';
 
 export default function Controls({
   roomId,
+  isHost,
   isAudioMuted,
   isVideoOff,
   isScreenSharing,
@@ -24,12 +27,14 @@ export default function Controls({
   participantCount,
   activePanel,
   showStats,
+  roomSettings,
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
   onToggleRaiseHand,
   onTogglePanel,
   onToggleStats,
+  onOpenSettings,
   onLeaveRoom
 }) {
   const [currentTime, setCurrentTime] = useState('');
@@ -53,7 +58,7 @@ export default function Controls({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const buttonStyle = (isActive, isAlert = false, isAccent = false, isAmber = false) => ({
+  const buttonStyle = (isActive, isAlert = false, isAccent = false, isAmber = false, isDisabled = false) => ({
     width: '48px',
     height: '48px',
     borderRadius: '50%',
@@ -61,7 +66,8 @@ export default function Controls({
     alignItems: 'center',
     justifyContent: 'center',
     border: 'none',
-    cursor: 'pointer',
+    cursor: isDisabled ? 'not-allowed' : 'pointer',
+    opacity: isDisabled ? 0.4 : 1,
     backgroundColor: isAlert
       ? '#ea4335'
       : isAmber
@@ -76,6 +82,10 @@ export default function Controls({
     outline: 'none'
   });
 
+  const micDisabled = !isHost && !roomSettings.allowMic;
+  const cameraDisabled = !isHost && !roomSettings.allowCamera;
+  const screenDisabled = !isHost && !roomSettings.allowScreenShare;
+
   return (
     <div
       style={{
@@ -89,8 +99,8 @@ export default function Controls({
         zIndex: 10
       }}
     >
-      {/* Left section: Time and Meeting Code */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: '220px' }}>
+      {/* Left section: Time, Meeting Code, and Host Authority badge */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: '240px' }}>
         <span style={{ fontSize: '15px', color: '#ffffff', fontWeight: '500' }}>
           {currentTime}
         </span>
@@ -120,6 +130,25 @@ export default function Controls({
         >
           {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
+
+        {isHost && (
+          <span
+            title="You are the meeting host"
+            style={{
+              fontSize: '11px',
+              backgroundColor: 'rgba(242, 153, 74, 0.2)',
+              color: '#f2994a',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            <ShieldCheck size={12} /> Host
+          </span>
+        )}
       </div>
 
       {/* Center section: Main Call Controls */}
@@ -127,8 +156,15 @@ export default function Controls({
         {/* Mic Toggle */}
         <button
           onClick={onToggleAudio}
-          title={isAudioMuted ? 'Turn on microphone (Ctrl + d)' : 'Turn off microphone (Ctrl + d)'}
-          style={buttonStyle(false, isAudioMuted)}
+          disabled={micDisabled && isAudioMuted}
+          title={
+            micDisabled
+              ? 'Microphones are locked by host'
+              : isAudioMuted
+              ? 'Turn on microphone (Ctrl + d)'
+              : 'Turn off microphone (Ctrl + d)'
+          }
+          style={buttonStyle(false, isAudioMuted, false, false, micDisabled && isAudioMuted)}
         >
           {isAudioMuted ? <MicOff size={20} /> : <Mic size={20} />}
         </button>
@@ -136,8 +172,15 @@ export default function Controls({
         {/* Video Toggle */}
         <button
           onClick={onToggleVideo}
-          title={isVideoOff ? 'Turn on camera (Ctrl + e)' : 'Turn off camera (Ctrl + e)'}
-          style={buttonStyle(false, isVideoOff)}
+          disabled={cameraDisabled && isVideoOff}
+          title={
+            cameraDisabled
+              ? 'Cameras are locked by host'
+              : isVideoOff
+              ? 'Turn on camera (Ctrl + e)'
+              : 'Turn off camera (Ctrl + e)'
+          }
+          style={buttonStyle(false, isVideoOff, false, false, cameraDisabled && isVideoOff)}
         >
           {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
         </button>
@@ -145,8 +188,15 @@ export default function Controls({
         {/* Screen Share Toggle */}
         <button
           onClick={onToggleScreenShare}
-          title={isScreenSharing ? 'Stop presenting' : 'Present now'}
-          style={buttonStyle(false, false, isScreenSharing)}
+          disabled={screenDisabled && !isScreenSharing}
+          title={
+            screenDisabled
+              ? 'Screen sharing restricted to host'
+              : isScreenSharing
+              ? 'Stop presenting'
+              : 'Present now'
+          }
+          style={buttonStyle(false, false, isScreenSharing, false, screenDisabled && !isScreenSharing)}
         >
           <ScreenShare size={20} />
         </button>
@@ -175,7 +225,7 @@ export default function Controls({
       </div>
 
       {/* Right section: Panels and Extra Tools */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '220px', justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '240px', justifyContent: 'flex-end' }}>
         {/* Scale Telemetry HUD */}
         <button
           onClick={onToggleStats}
@@ -265,6 +315,25 @@ export default function Controls({
           }}
         >
           <MessageSquare size={22} />
+        </button>
+
+        {/* Settings Icon (Meeting & Personal settings) */}
+        <button
+          onClick={onOpenSettings}
+          title="Meeting & Personal Settings"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#e8eaed',
+            cursor: 'pointer',
+            padding: '8px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            transition: 'transform 0.2s'
+          }}
+        >
+          <SettingsIcon size={22} />
         </button>
       </div>
     </div>

@@ -19,11 +19,45 @@ export function useWebRTC() {
   const [localStream, setLocalStream] = useState(null);
   
   // Full room participant directory (can hold 500+ users with negligible overhead)
-  const [roster, setRoster] = useState({}); // peerId -> { peerId, userName, isAudioMuted, isVideoOff, isScreenSharing, isHandRaised, role }
+  const [roster, setRoster] = useState({});
+  const [remoteStreams, setRemoteStreams] = useState({});
   
-  // Active media streams for visible peers (capped at 6-9 active decoders)
-  const [remoteStreams, setRemoteStreams] = useState({}); // peerId -> MediaStream
-  
+  // Authority & Meeting Settings (Admin controls)
+  const [isHost, setIsHost] = useState(false);
+  const [hostId, setHostId] = useState(null);
+  const [roomSettings, setRoomSettings] = useState({
+    isLocked: false,
+    allowScreenShare: true,
+    allowChat: true,
+    allowMic: true,
+    allowCamera: true
+  });
+
+  // Personal Settings (Persisted locally)
+  const [personalSettings, setPersonalSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('gmeet_personal_settings');
+      return saved ? JSON.parse(saved) : {
+        audioInputDeviceId: '',
+        audioOutputDeviceId: '',
+        videoInputDeviceId: '',
+        sendResolution: '720p',
+        receiveResolution: 'auto',
+        noiseCancellation: true,
+        mirrorVideo: true,
+        defaultAudioMuted: false,
+        defaultVideoOff: false
+      };
+    } catch {
+      return {
+        sendResolution: '720p',
+        receiveResolution: 'auto',
+        noiseCancellation: true,
+        mirrorVideo: true
+      };
+    }
+  });
+
   // Scalable pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -43,32 +77,53 @@ export function useWebRTC() {
   const peerConnections = useRef({}); // peerId -> RTCPeerConnection
   const screenTrackRef = useRef(null);
   const localStreamRef = useRef(null);
-  const pendingCandidates = useRef({}); // peerId -> Array of RTCIceCandidate
+  const pendingCandidates = useRef({});
   const audioContextRef = useRef(null);
   const vadIntervalRef = useRef(null);
 
-  // Initialize or get Local MediaStream
-  const getMediaStream = useCallback(async () => {
+  // Initialize or acquire Local MediaStream with resolution constraints from personalSettings
+  const getMediaStream = useCallback(async (overrides = {}) => {
+    const settings = { ...personalSettings, ...overrides };
+    
+    let videoConstraints = {
+      facingMode: 'user',
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    };
+
+    if (settings.sendResolution === '360p') {
+      videoConstraints.width = { ideal: 640 };
+      videoConstraints.height = { ideal: 360 };
+    } else if (settings.sendResolution === '180p') {
+      videoConstraints.width = { ideal: 320 };
+      videoConstraints.height = { ideal: 180 };
+    }
+
+    if (settings.videoInputDeviceId) {
+      videoConstraints.deviceId = { exact: settings.videoInputDeviceId };
+    }
+
+    const audioConstraints = {
+      echoCancellation: true,
+      noiseSuppression: settings.noiseCancellation ?? true,
+      autoGainControl: true
+    };
+    if (settings.audioInputDeviceId) {
+      audioConstraints.deviceId = { exact: settings.audioInputDeviceId };
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user'
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+        video: videoConstraints,
+        audio: audioConstraints
       });
       localStreamRef.current = stream;
       setLocalStream(stream);
       return stream;
     } catch (err) {
-      console.warn('[WebRTC] Camera/Mic access error, attempting audio fallback:', err);
+      console.warn('[WebRTC] Camera/Mic access warning, attempting audio-only fallback:', err);
       try {
-        const audioOnlyStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioOnlyStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         localStreamRef.current = audioOnlyStream;
         setLocalStream(audioOnlyStream);
         setIsVideoOff(true);
@@ -83,9 +138,9 @@ export function useWebRTC() {
         return emptyStream;
       }
     }
-  }, []);
+  }, [personalSettings]);
 
-  // Voice Activity Detection (VAD) using Web Audio API AnalyserNode
+  // Voice Activity Detection (VAD)
   const startVAD = useCallback((stream) => {
     if (!stream || stream.getAudioTracks().length === 0) return;
 
@@ -115,11 +170,11 @@ export function useWebRTC() {
         }
       }, 150);
     } catch (e) {
-      console.warn('[VAD] Audio analyzer not available:', e);
+      console.warn('[VAD] Audio analyzer unavailable:', e);
     }
   }, [isAudioMuted]);
 
-  // Clean up PeerConnection for a specific peer
+  // Clean up PeerConnection
   const cleanupPeer = useCallback((peerId) => {
     if (peerConnections.current[peerId]) {
       try {
@@ -137,7 +192,7 @@ export function useWebRTC() {
     });
   }, []);
 
-  // Create PeerConnection (only invoked for visible page peers or active speaker)
+  // Create PeerConnection
   const createPeerConnection = useCallback((peerId, targetUserName) => {
     if (peerConnections.current[peerId]) {
       return peerConnections.current[peerId];
@@ -162,7 +217,6 @@ export function useWebRTC() {
     };
 
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] Received track from ${targetUserName || peerId}:`, event.track.kind);
       const [remoteStream] = event.streams;
       setRemoteStreams((prev) => ({
         ...prev,
@@ -187,7 +241,7 @@ export function useWebRTC() {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (e) {
-          console.warn('[WebRTC] Error adding ICE candidate:', e);
+          console.warn('[WebRTC] ICE candidate error:', e);
         }
       }
     }
@@ -202,19 +256,16 @@ export function useWebRTC() {
     const pageSlice = peerList.slice(startIndex, startIndex + pageSize);
     const ids = new Set(pageSlice.map((p) => p.peerId));
 
-    // If there is an active speaker not on this page, include them so audio/video stays live
     if (activeSpeakerId && roster[activeSpeakerId]) {
       ids.add(activeSpeakerId);
     }
     return ids;
   }, [peerList, currentPage, pageSize, activeSpeakerId, roster]);
 
-  // Synchronize active WebRTC connections with visible page:
-  // Connect to visible peers; teardown connections to peers that moved to hidden pages
+  // Synchronize active WebRTC connections with visible page
   useEffect(() => {
     if (!isConnected || !socketRef.current) return;
 
-    // 1. Establish connections to newly visible peers
     visiblePeerIds.forEach(async (peerId) => {
       if (!peerConnections.current[peerId]) {
         const peer = roster[peerId];
@@ -227,12 +278,11 @@ export function useWebRTC() {
             sdp: offer
           });
         } catch (err) {
-          console.error('[WebRTC] Selective subscription offer error:', err);
+          console.error('[WebRTC] Offer error:', err);
         }
       }
     });
 
-    // 2. Disconnect peers that are no longer visible (to keep client CPU and RAM at minimum)
     Object.keys(peerConnections.current).forEach((peerId) => {
       if (!visiblePeerIds.has(peerId)) {
         cleanupPeer(peerId);
@@ -244,8 +294,12 @@ export function useWebRTC() {
   const joinRoom = useCallback(async ({ roomId: targetRoomId, userName: name, initialAudioMuted = false, initialVideoOff = false }) => {
     setRoomId(targetRoomId);
     setUserName(name);
-    setIsAudioMuted(initialAudioMuted);
-    setIsVideoOff(initialVideoOff);
+
+    let startMuted = initialAudioMuted || personalSettings.defaultAudioMuted;
+    let startVideoOff = initialVideoOff || personalSettings.defaultVideoOff;
+
+    setIsAudioMuted(startMuted);
+    setIsVideoOff(startVideoOff);
 
     let currentStream = localStreamRef.current;
     if (!currentStream) {
@@ -253,8 +307,8 @@ export function useWebRTC() {
     }
 
     if (currentStream) {
-      currentStream.getAudioTracks().forEach((t) => (t.enabled = !initialAudioMuted));
-      currentStream.getVideoTracks().forEach((t) => (t.enabled = !initialVideoOff));
+      currentStream.getAudioTracks().forEach((t) => (t.enabled = !startMuted));
+      currentStream.getVideoTracks().forEach((t) => (t.enabled = !startVideoOff));
       startVAD(currentStream);
     }
 
@@ -264,20 +318,25 @@ export function useWebRTC() {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log(`[Socket] Connected to scalable signaling engine: ${socket.id}`);
+      console.log(`[Socket] Connected to signaling engine: ${socket.id}`);
       setIsConnected(true);
 
       socket.emit('join-room', {
         roomId: targetRoomId,
         userName: name,
-        isAudioMuted: initialAudioMuted,
-        isVideoOff: initialVideoOff
+        isAudioMuted: startMuted,
+        isVideoOff: startVideoOff
       });
     });
 
-    // Initial Room Snapshot
-    socket.on('room-snapshot', ({ participants }) => {
-      console.log(`[Socket] Received room snapshot with ${participants.length} participants.`);
+    // Room Snapshot with Admin & Authority state
+    socket.on('room-snapshot', ({ participants, isHost: hostStatus, hostId: currentHostId, settings }) => {
+      setIsHost(hostStatus);
+      setHostId(currentHostId);
+      if (settings) {
+        setRoomSettings(settings);
+      }
+
       const map = {};
       participants.forEach((p) => {
         if (p.peerId !== socket.id) {
@@ -287,7 +346,55 @@ export function useWebRTC() {
       setRoster(map);
     });
 
-    // Batched Room Deltas (High-Scale optimization: processes 50ms batch in one render tick)
+    // Room Settings Updated by Host
+    socket.on('room-settings-updated', ({ settings, updatedBy }) => {
+      setRoomSettings(settings);
+      console.log(`[Admin] Room settings updated by ${updatedBy}:`, settings);
+    });
+
+    // Host Force Actions
+    socket.on('force-mute-audio', () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = false));
+      }
+      setIsAudioMuted(true);
+      alert('Your microphone was muted by the meeting host.');
+    });
+
+    socket.on('force-disable-video', () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = false));
+      }
+      setIsVideoOff(true);
+      alert('Your video camera was disabled by the meeting host.');
+    });
+
+    socket.on('kicked-from-room', ({ reason }) => {
+      alert(reason || 'You were removed from the meeting by the host.');
+      leaveRoom();
+    });
+
+    socket.on('host-changed', ({ newHostId, newHostName }) => {
+      setHostId(newHostId);
+      const amIHost = socket.id === newHostId;
+      setIsHost(amIHost);
+      if (amIHost) {
+        alert('You are now the meeting host.');
+      } else {
+        console.log(`Host changed to ${newHostName}`);
+      }
+    });
+
+    socket.on('admin-warning', ({ message }) => {
+      alert(message);
+    });
+
+    socket.on('join-error', ({ message }) => {
+      alert(message);
+      leaveRoom();
+    });
+
+    // Batched Room Deltas
     socket.on('room-deltas', (deltas) => {
       setRoster((prev) => {
         const next = { ...prev };
@@ -349,7 +456,7 @@ export function useWebRTC() {
           sdp: answer
         });
       } catch (err) {
-        console.error('[WebRTC] Offer handling error:', err);
+        console.error('[WebRTC] Offer error:', err);
       }
     });
 
@@ -360,7 +467,7 @@ export function useWebRTC() {
           await pc.setRemoteDescription(new RTCSessionDescription(sdp));
           await processPendingCandidates(responderPeerId);
         } catch (err) {
-          console.error('[WebRTC] Answer handling error:', err);
+          console.error('[WebRTC] Answer error:', err);
         }
       }
     });
@@ -384,10 +491,15 @@ export function useWebRTC() {
     socket.on('new-chat-message', (msg) => {
       setChatMessages((prev) => [...prev, msg]);
     });
-  }, [createPeerConnection, cleanupPeer, processPendingCandidates, getMediaStream, startVAD]);
+  }, [createPeerConnection, cleanupPeer, processPendingCandidates, getMediaStream, startVAD, personalSettings]);
 
-  // Audio Toggle
+  // Audio Toggle with Host Policy Check
   const toggleAudio = useCallback(() => {
+    if (!isHost && !roomSettings.allowMic && isAudioMuted) {
+      alert('Microphones are locked by the host.');
+      return;
+    }
+
     if (localStreamRef.current) {
       const audioTracks = localStreamRef.current.getAudioTracks();
       if (audioTracks.length > 0) {
@@ -403,10 +515,15 @@ export function useWebRTC() {
         }
       }
     }
-  }, [isAudioMuted, isVideoOff]);
+  }, [isAudioMuted, isVideoOff, isHost, roomSettings.allowMic]);
 
-  // Video Toggle
+  // Video Toggle with Host Policy Check
   const toggleVideo = useCallback(() => {
+    if (!isHost && !roomSettings.allowCamera && isVideoOff) {
+      alert('Cameras are locked by the host.');
+      return;
+    }
+
     if (localStreamRef.current) {
       const videoTracks = localStreamRef.current.getVideoTracks();
       if (videoTracks.length > 0) {
@@ -422,10 +539,15 @@ export function useWebRTC() {
         }
       }
     }
-  }, [isAudioMuted, isVideoOff]);
+  }, [isAudioMuted, isVideoOff, isHost, roomSettings.allowCamera]);
 
-  // Screen Share Toggle
+  // Screen Share Toggle with Host Policy Check
   const toggleScreenShare = useCallback(async () => {
+    if (!isHost && !roomSettings.allowScreenShare && !isScreenSharing) {
+      alert('Screen sharing is restricted to meeting hosts.');
+      return;
+    }
+
     if (isScreenSharing) {
       if (screenTrackRef.current) {
         screenTrackRef.current.stop();
@@ -474,9 +596,9 @@ export function useWebRTC() {
         console.warn('[WebRTC] Screen sharing cancelled:', err);
       }
     }
-  }, [isScreenSharing]);
+  }, [isScreenSharing, isHost, roomSettings.allowScreenShare]);
 
-  // Raise Hand Toggle
+  // Raise Hand
   const toggleRaiseHand = useCallback(() => {
     const nextState = !isHandRaised;
     setIsHandRaised(nextState);
@@ -485,29 +607,81 @@ export function useWebRTC() {
     }
   }, [isHandRaised]);
 
-  // Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        toggleAudio();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
-        e.preventDefault();
-        toggleVideo();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleAudio, toggleVideo]);
-
-  // Send Chat Message
+  // Send Chat with Host Policy Check
   const sendChatMessage = useCallback((message) => {
     if (!message || !message.trim()) return;
+    if (!isHost && !roomSettings.allowChat) {
+      alert('In-call chat is turned off by the host.');
+      return;
+    }
     if (socketRef.current) {
       socketRef.current.emit('send-chat', { message: message.trim() });
     }
-  }, []);
+  }, [isHost, roomSettings.allowChat]);
+
+  // --- Admin Host Controls ---
+
+  const updateRoomSettings = useCallback((newSettings) => {
+    if (!isHost) return;
+    setRoomSettings(newSettings);
+    if (socketRef.current) {
+      socketRef.current.emit('update-room-settings', { settings: newSettings });
+    }
+  }, [isHost]);
+
+  const hostMuteAll = useCallback(() => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('host-mute-all');
+    }
+  }, [isHost]);
+
+  const hostKickPeer = useCallback((targetPeerId) => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('host-kick-peer', { targetPeerId });
+    }
+  }, [isHost]);
+
+  // --- Personal Settings Updates ---
+
+  const updatePersonalSettings = useCallback(async (partial) => {
+    const updated = { ...personalSettings, ...partial };
+    setPersonalSettings(updated);
+    try {
+      localStorage.setItem('gmeet_personal_settings', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save personal settings to localStorage:', e);
+    }
+
+    // If hardware devices or resolutions changed, refresh active local stream
+    if (
+      partial.audioInputDeviceId !== undefined ||
+      partial.videoInputDeviceId !== undefined ||
+      partial.sendResolution !== undefined ||
+      partial.noiseCancellation !== undefined
+    ) {
+      const newStream = await getMediaStream(updated);
+      if (newStream) {
+        newStream.getAudioTracks().forEach((t) => (t.enabled = !isAudioMuted));
+        newStream.getVideoTracks().forEach((t) => (t.enabled = !isVideoOff));
+
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        const newAudioTrack = newStream.getAudioTracks()[0];
+
+        Object.values(peerConnections.current).forEach((pc) => {
+          if (newVideoTrack) {
+            const videoSender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+            if (videoSender) videoSender.replaceTrack(newVideoTrack);
+          }
+          if (newAudioTrack) {
+            const audioSender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
+            if (audioSender) audioSender.replaceTrack(newAudioTrack);
+          }
+        });
+      }
+    }
+  }, [personalSettings, getMediaStream, isAudioMuted, isVideoOff]);
 
   // Leave Room
   const leaveRoom = useCallback(() => {
@@ -551,12 +725,9 @@ export function useWebRTC() {
   const telemetry = useMemo(() => {
     const totalParticipants = 1 + Object.keys(roster).length;
     const activeStreams = Object.keys(remoteStreams).length;
-    
-    // In naive mesh: total streams = N * (N - 1)
     const theoreticalMeshStreams = totalParticipants * Math.max(0, totalParticipants - 1);
-    const actualSubscribedStreams = activeStreams;
     const savingsPercent = theoreticalMeshStreams > 0 
-      ? Math.max(0, ((1 - (actualSubscribedStreams / theoreticalMeshStreams)) * 100)).toFixed(1)
+      ? Math.max(0, ((1 - (activeStreams / theoreticalMeshStreams)) * 100)).toFixed(1)
       : '0.0';
 
     return {
@@ -564,9 +735,10 @@ export function useWebRTC() {
       activeStreams,
       savingsPercent,
       page: currentPage,
-      totalPages
+      totalPages,
+      isHost
     };
-  }, [roster, remoteStreams, currentPage, totalPages]);
+  }, [roster, remoteStreams, currentPage, totalPages, isHost]);
 
   return {
     localStream,
@@ -578,6 +750,16 @@ export function useWebRTC() {
     totalPages,
     setCurrentPage,
     telemetry,
+    // Authority & Settings
+    isHost,
+    hostId,
+    roomSettings,
+    personalSettings,
+    updateRoomSettings,
+    hostMuteAll,
+    hostKickPeer,
+    updatePersonalSettings,
+    // Media Controls
     isAudioMuted,
     isVideoOff,
     isScreenSharing,

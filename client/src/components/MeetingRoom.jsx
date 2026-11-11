@@ -5,11 +5,13 @@ import ChatPanel from './ChatPanel';
 import ParticipantsPanel from './ParticipantsPanel';
 import InfoPanel from './InfoPanel';
 import StatsHUD from './StatsHUD';
+import SettingsModal from './SettingsModal';
 
 export default function MeetingRoom({
   localStream,
   userName,
   roomId,
+  isHost,
   isAudioMuted,
   isVideoOff,
   isScreenSharing,
@@ -22,6 +24,12 @@ export default function MeetingRoom({
   activeSpeakerId,
   telemetry,
   chatMessages,
+  roomSettings,
+  personalSettings,
+  onUpdateRoomSettings,
+  onHostMuteAll,
+  onHostKickPeer,
+  onUpdatePersonalSettings,
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
@@ -31,6 +39,7 @@ export default function MeetingRoom({
 }) {
   const [activePanel, setActivePanel] = useState(null); // 'chat' | 'people' | 'info' | null
   const [showStats, setShowStats] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const handleTogglePanel = (panelName) => {
     setActivePanel((current) => (current === panelName ? null : panelName));
@@ -51,6 +60,18 @@ export default function MeetingRoom({
         position: 'relative'
       }}
     >
+      {/* Settings Modal (Meeting Admin & Personal Settings) */}
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        isHost={isHost}
+        roomSettings={roomSettings}
+        onUpdateRoomSettings={onUpdateRoomSettings}
+        onHostMuteAll={onHostMuteAll}
+        personalSettings={personalSettings}
+        onUpdatePersonalSettings={onUpdatePersonalSettings}
+      />
+
       {/* Scalability & Telemetry HUD */}
       {showStats && (
         <StatsHUD
@@ -84,6 +105,8 @@ export default function MeetingRoom({
         {activePanel === 'chat' && (
           <ChatPanel
             chatMessages={chatMessages}
+            isHost={isHost}
+            roomSettings={roomSettings}
             onSendMessage={onSendMessage}
             onClose={() => setActivePanel(null)}
           />
@@ -92,10 +115,13 @@ export default function MeetingRoom({
         {activePanel === 'people' && (
           <ParticipantsPanel
             userName={userName}
+            isHost={isHost}
             isAudioMuted={isAudioMuted}
             isVideoOff={isVideoOff}
             isHandRaised={isHandRaised}
             roster={roster}
+            onHostMuteAll={onHostMuteAll}
+            onHostKickPeer={onHostKickPeer}
             onClose={() => setActivePanel(null)}
           />
         )}
@@ -111,6 +137,7 @@ export default function MeetingRoom({
       {/* Bottom Controls Bar */}
       <Controls
         roomId={roomId}
+        isHost={isHost}
         isAudioMuted={isAudioMuted}
         isVideoOff={isVideoOff}
         isScreenSharing={isScreenSharing}
@@ -118,12 +145,14 @@ export default function MeetingRoom({
         participantCount={participantCount}
         activePanel={activePanel}
         showStats={showStats}
+        roomSettings={roomSettings}
         onToggleAudio={onToggleAudio}
         onToggleVideo={onToggleVideo}
         onToggleScreenShare={onToggleScreenShare}
         onToggleRaiseHand={onToggleRaiseHand}
         onTogglePanel={handleTogglePanel}
         onToggleStats={() => setShowStats(!showStats)}
+        onOpenSettings={() => setShowSettings(true)}
         onLeaveRoom={onLeaveRoom}
       />
     </div>

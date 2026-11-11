@@ -3,7 +3,7 @@
   "project": "Google Meet Reverse Engineering & Reconstruction",
   "tool": "morluto/rea@6.7.0",
   "target": "Google Meet (web client)",
-  "reconstruction_strategy": "Clean-Room WebRTC Implementation with REA-driven Protocol Parity & High-Scale Architecture",
+  "reconstruction_strategy": "Clean-Room WebRTC Implementation with REA-driven Protocol Parity, High-Scale Architecture & Host Controls",
   "obligations": [
     {
       "id": "SIG-001",
@@ -60,6 +60,51 @@
       "verified": true
     },
     {
+      "id": "ADMIN-001",
+      "category": "Administration & Host Authority",
+      "title": "Host Role Assignment & Authority Enforcement",
+      "target_behavior": "First participant is assigned host authority with automatic failover if host disconnects; host commands are validated server-side.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "server/index.js: isHost assignment, update-room-settings authority check, host-changed handler",
+      "verified": true
+    },
+    {
+      "id": "ADMIN-002",
+      "category": "Administration & Host Authority",
+      "title": "Meeting Lock, Participant Removal, and Global Mute",
+      "target_behavior": "Host can lock room preventing new joins, force-mute all participants, or kick abusive participants with server disconnection.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "server/index.js (host-mute-all, host-kick-peer, lock enforcement in join-room)",
+      "verified": true
+    },
+    {
+      "id": "ADMIN-003",
+      "category": "Administration & Host Authority",
+      "title": "Policy Enforcement (Screen Sharing, Chat & Audio/Video Locking)",
+      "target_behavior": "Host toggles room-wide policies; client controls disable mic, camera, screen share, and chat inputs with tooltip warnings for non-hosts.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/components/Controls.jsx, client/src/components/ChatPanel.jsx, server/index.js",
+      "verified": true
+    },
+    {
+      "id": "CONFIG-001",
+      "category": "Personal Settings",
+      "title": "Hardware Device Enumeration & Speaker Test",
+      "target_behavior": "Enumerate system audio inputs, audio outputs, and video cameras with live speaker tone synthesizer test.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/components/SettingsModal.jsx: device selectors & handleTestSpeaker",
+      "verified": true
+    },
+    {
+      "id": "CONFIG-002",
+      "category": "Personal Settings",
+      "title": "Dynamic Resolution & Bandwidth Controls",
+      "target_behavior": "User selects send resolution (720p / 360p / 180p) and receive resolution (auto / audio-only) to throttle bandwidth on slow networks.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/hooks/useWebRTC.js: getMediaStream constraints & updatePersonalSettings",
+      "verified": true
+    },
+    {
       "id": "RTC-001",
       "category": "Media Engine",
       "title": "MediaStream Acquisition & Device Permissions",
@@ -99,7 +144,7 @@
       "id": "UI-001",
       "category": "User Experience",
       "title": "Google Meet Dark Theme & Control Bar",
-      "target_behavior": "Authentic bottom pill controls (mic, camera, screen, raise hand, chat, participants, telemetry HUD, leave call button).",
+      "target_behavior": "Authentic bottom pill controls (mic, camera, screen, raise hand, chat, participants, telemetry HUD, settings gear, leave call button).",
       "implementation_status": "IMPLEMENTED",
       "evidence": "client/src/components/Controls.jsx & client/src/components/MeetingRoom.jsx",
       "verified": true
@@ -126,7 +171,7 @@
       "id": "UI-004",
       "category": "User Experience",
       "title": "Raise Hand & Searchable Roster Panel",
-      "target_behavior": "Instant search bar across 500+ people, categorized into Speakers vs Audience with priority sorting for raised hands.",
+      "target_behavior": "Instant search bar across 500+ people, categorized into Speakers vs Audience with priority sorting for raised hands and host quick actions.",
       "implementation_status": "IMPLEMENTED",
       "evidence": "client/src/components/ParticipantsPanel.jsx",
       "verified": true
@@ -141,10 +186,19 @@
       "verified": true
     },
     {
+      "id": "UI-006",
+      "category": "User Experience",
+      "title": "Unified Settings Modal with Authority Gating",
+      "target_behavior": "Tabbed dialog (Audio, Video, General, Host controls) dynamically revealing meeting management or restriction state based on user authority.",
+      "implementation_status": "IMPLEMENTED",
+      "evidence": "client/src/components/SettingsModal.jsx",
+      "verified": true
+    },
+    {
       "id": "CHAT-001",
       "category": "Collaboration",
-      "title": "In-Meeting Realtime Chat",
-      "target_behavior": "Slide-out panel for real-time chat broadcast during the call.",
+      "title": "In-Meeting Realtime Chat with Host Lock",
+      "target_behavior": "Slide-out panel for real-time chat with host badge and automated lock state when host disables in-call messaging.",
       "implementation_status": "IMPLEMENTED",
       "evidence": "client/src/components/ChatPanel.jsx",
       "verified": true

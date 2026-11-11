@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send } from 'lucide-react';
+import { X, Send, Lock } from 'lucide-react';
 
 export default function ChatPanel({
   chatMessages,
+  isHost,
+  roomSettings,
   onSendMessage,
   onClose
 }) {
@@ -20,6 +22,8 @@ export default function ChatPanel({
       setInputText('');
     }
   };
+
+  const isChatDisabled = !isHost && roomSettings && !roomSettings.allowChat;
 
   return (
     <div
@@ -63,20 +67,40 @@ export default function ChatPanel({
         </button>
       </div>
 
-      {/* Info notice */}
-      <div
-        style={{
-          margin: '12px 16px',
-          padding: '12px',
-          backgroundColor: '#303134',
-          borderRadius: '8px',
-          fontSize: '12px',
-          color: '#9aa0a6',
-          lineHeight: '1.4'
-        }}
-      >
-        Messages can only be seen by people in the call and are deleted when the call ends.
-      </div>
+      {/* Info notice or Host Restricted notice */}
+      {isChatDisabled ? (
+        <div
+          style={{
+            margin: '12px 16px',
+            padding: '12px',
+            backgroundColor: 'rgba(234, 67, 53, 0.15)',
+            border: '1px solid rgba(234, 67, 53, 0.3)',
+            borderRadius: '8px',
+            fontSize: '12px',
+            color: '#f28b82',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <Lock size={16} />
+          <span>Chat has been turned off by the meeting host.</span>
+        </div>
+      ) : (
+        <div
+          style={{
+            margin: '12px 16px',
+            padding: '12px',
+            backgroundColor: '#303134',
+            borderRadius: '8px',
+            fontSize: '12px',
+            color: '#9aa0a6',
+            lineHeight: '1.4'
+          }}
+        >
+          Messages can only be seen by people in the call and are deleted when the call ends.
+        </div>
+      )}
 
       {/* Messages List */}
       <div
@@ -108,10 +132,10 @@ export default function ChatPanel({
                   style={{
                     fontSize: '13px',
                     fontWeight: '600',
-                    color: '#e8eaed'
+                    color: msg.isHost ? '#f28b82' : '#e8eaed'
                   }}
                 >
-                  {msg.senderName}
+                  {msg.senderName} {msg.isHost && '(Host)'}
                 </span>
                 <span style={{ fontSize: '11px', color: '#9aa0a6' }}>
                   {msg.timestamp}
@@ -146,26 +170,28 @@ export default function ChatPanel({
       >
         <input
           type="text"
+          disabled={isChatDisabled}
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Send a message..."
+          placeholder={isChatDisabled ? 'Chat is turned off by host' : 'Send a message...'}
           style={{
             flex: 1,
-            backgroundColor: '#303134',
+            backgroundColor: isChatDisabled ? '#282a2d' : '#303134',
             border: '1px solid #5f6368',
             borderRadius: '24px',
             padding: '10px 16px',
-            color: '#ffffff',
+            color: isChatDisabled ? '#80868b' : '#ffffff',
             fontSize: '14px',
-            outline: 'none'
+            outline: 'none',
+            cursor: isChatDisabled ? 'not-allowed' : 'text'
           }}
         />
         <button
           type="submit"
-          disabled={!inputText.trim()}
+          disabled={isChatDisabled || !inputText.trim()}
           style={{
-            backgroundColor: inputText.trim() ? '#1a73e8' : '#3c4043',
-            color: inputText.trim() ? '#ffffff' : '#80868b',
+            backgroundColor: !isChatDisabled && inputText.trim() ? '#1a73e8' : '#3c4043',
+            color: !isChatDisabled && inputText.trim() ? '#ffffff' : '#80868b',
             border: 'none',
             borderRadius: '50%',
             width: '40px',
@@ -173,7 +199,7 @@ export default function ChatPanel({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            cursor: inputText.trim() ? 'pointer' : 'default',
+            cursor: !isChatDisabled && inputText.trim() ? 'pointer' : 'default',
             transition: 'background-color 0.2s'
           }}
         >
@@ -183,4 +209,3 @@ export default function ChatPanel({
     </div>
   );
 }
-

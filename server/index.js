@@ -25,32 +25,46 @@ const io = new Server(server, {
     origin: '*',
     methods: ['GET', 'POST']
   },
-  // Performance optimizations
   perMessageDeflate: {
-    threshold: 1024 // Only compress messages larger than 1KB to save CPU
+    threshold: 1024
   },
   httpCompression: true,
   pingInterval: 15000,
   pingTimeout: 30000,
-  maxHttpBufferSize: 1e6 // 1MB
+  maxHttpBufferSize: 1e6
 });
 
 /**
- * High-Scale Room Data Structure
+ * High-Scale Room Data Structure with Admin / Host Control:
  * Room:
  *   - id: string
- *   - participants: Map(socketId -> { id, userName, isAudioMuted, isVideoOff, isScreenSharing, isHandRaised, speakingLevel, role, joinedAt })
+ *   - hostId: string (socket ID of primary meeting administrator)
+ *   - settings: {
+ *       isLocked: boolean,
+ *       allowScreenShare: boolean,
+ *       allowChat: boolean,
+ *       allowMic: boolean,
+ *       allowCamera: boolean
+ *     }
+ *   - participants: Map(socketId -> { id, userName, isAudioMuted, isVideoOff, isScreenSharing, isHandRaised, isHost, role, joinedAt })
  *   - activeSpeakers: Set(socketId)
  *   - pendingDeltas: Array
- *   - broadcastTimer: Timer
+ *   - flushTimer: Timer
  */
 const rooms = new Map();
 
-// Helper to get or create room
 function getOrCreateRoom(roomId) {
   if (!rooms.has(roomId)) {
     rooms.set(roomId, {
       id: roomId,
+      hostId: null,
+      settings: {
+        isLocked: false,
+        allowScreenShare: true,
+        allowChat: true,
+        allowMic: true,
+        allowCamera: true
+      },
       participants: new Map(),
       activeSpeakers: new Set(),
       pendingDeltas: [],
@@ -61,8 +75,7 @@ function getOrCreateRoom(roomId) {
   return rooms.get(roomId);
 }
 
-// Batched Delta Broadcaster: Flushes aggregated state every 50ms
-// Prevents Node.js event-loop starvation when hundreds of users are in a single room
+// Batched Delta Broadcaster (50ms interval ticks)
 function scheduleBatchedBroadcast(room) {
   if (room.flushTimer) return;
 
@@ -72,8 +85,6 @@ function scheduleBatchedBroadcast(room) {
 
     const deltas = room.pendingDeltas;
     room.pendingDeltas = [];
-
-    // Broadcast batched deltas to the room in a single compact packet
     io.to(room.id).emit('room-deltas', deltas);
   }, 50);
 }
@@ -83,7 +94,7 @@ function queueDelta(room, delta) {
   scheduleBatchedBroadcast(room);
 }
 
-// --- REST Endpoints for Load Monitoring & Metrics ---
+// --- REST Endpoints ---
 
 app.get('/api/health', (req, res) => {
   let totalParticipants = 0;
@@ -97,7 +108,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Comprehensive load and performance telemetry endpoint
 app.get('/api/metrics', (req, res) => {
   let totalParticipants = 0;
   const roomSummaries = [];
@@ -106,8 +116,10 @@ app.get('/api/metrics', (req, res) => {
     totalParticipants += r.participants.size;
     roomSummaries.push({
       roomId: r.id,
+      hostId: r.hostId,
       participants: r.participants.size,
       activeSpeakers: r.activeSpeakers.size,
+      settings: r.settings,
       uptimeSec: Math.floor((Date.now() - r.createdAt) / 1000)
     });
   });
@@ -149,59 +161,170 @@ app.get('/api/rooms/:roomId', (req, res) => {
   return res.json({
     exists: true,
     count: room.participants.size,
-    activeSpeakers: Array.from(room.activeSpeakers)
+    hostId: room.hostId,
+    settings: room.settings
   });
 });
 
-// --- Socket.IO High-Concurrency Event Handlers ---
+// --- Socket.IO Event Handlers with Authority Enforcement ---
 
 io.on('connection', (socket) => {
-  // 1. Join Room with Selective Roster
-  socket.on('join-room', ({ roomId, userName, isAudioMuted = false, isVideoOff = false, role = 'audience' }) => {
+  // 1. Join Room
+  socket.on('join-room', ({ roomId, userName, isAudioMuted = false, isVideoOff = false }) => {
+    const room = getOrCreateRoom(roomId);
+
+    // Authority Check: If meeting is locked by the host, reject non-hosts
+    if (room.settings.isLocked && room.hostId && socket.id !== room.hostId) {
+      socket.emit('join-error', {
+        message: 'This meeting is locked by the host. New participants cannot join at this time.'
+      });
+      return;
+    }
+
     socket.join(roomId);
     socket.roomId = roomId;
     socket.userName = userName || `User-${socket.id.slice(0, 4)}`;
 
-    const room = getOrCreateRoom(roomId);
+    // If room has no active host, first participant becomes the Host/Admin
+    const isFirstParticipant = room.participants.size === 0 || !room.hostId;
+    if (isFirstParticipant) {
+      room.hostId = socket.id;
+    }
+    const isHost = socket.id === room.hostId;
+
+    // Apply host room policy defaults if restricted
+    let actualAudioMuted = isAudioMuted;
+    let actualVideoOff = isVideoOff;
+    if (!isHost && !room.settings.allowMic) {
+      actualAudioMuted = true;
+    }
+    if (!isHost && !room.settings.allowCamera) {
+      actualVideoOff = true;
+    }
 
     const participantData = {
       peerId: socket.id,
       userName: socket.userName,
-      isAudioMuted,
-      isVideoOff,
+      isAudioMuted: actualAudioMuted,
+      isVideoOff: actualVideoOff,
       isScreenSharing: false,
       isHandRaised: false,
-      role: isVideoOff && isAudioMuted ? 'audience' : 'speaker',
+      isHost,
+      role: isHost ? 'host' : actualVideoOff && actualAudioMuted ? 'audience' : 'speaker',
       speakingLevel: 0,
       joinedAt: Date.now()
     };
 
     room.participants.set(socket.id, participantData);
 
-    console.log(`[Signaling] ${socket.userName} (${socket.id}) joined room "${roomId}". Room count: ${room.participants.size}`);
+    console.log(`[Signaling] ${socket.userName} (${socket.id}) joined "${roomId}" [Host: ${isHost}]. Total: ${room.participants.size}`);
 
-    // High Scale Optimization:
-    // Send full roster metadata (names and statuses), but clients will only subscribe
-    // to video streams of the currently visible page and active speakers.
     const allParticipants = Array.from(room.participants.values());
-    
-    // Send current state to newly joined user
+
+    // Send full snapshot including host authority and room settings
     socket.emit('room-snapshot', {
       roomId,
+      isHost,
+      hostId: room.hostId,
+      settings: room.settings,
       totalParticipants: room.participants.size,
       participants: allParticipants,
       activeSpeakers: Array.from(room.activeSpeakers)
     });
 
-    // Broadcast lightweight join delta to other participants
+    // Notify other peers
     queueDelta(room, {
       type: 'user-joined',
       participant: participantData
     });
   });
 
-  // 2. Request Paginated Peers for Selective Video Subscription
-  // Clients call this when switching pages in a 500-person call
+  // 2. Admin / Host: Update Meeting Settings
+  socket.on('update-room-settings', ({ settings }) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    // Authority Enforcement: Only host can modify meeting settings
+    if (socket.id !== room.hostId) {
+      socket.emit('admin-error', { message: 'Unauthorized: Only the meeting host can change settings.' });
+      return;
+    }
+
+    room.settings = { ...room.settings, ...settings };
+    console.log(`[Admin] Host updated settings for "${roomId}":`, room.settings);
+
+    // Broadcast updated settings to everyone
+    io.to(roomId).emit('room-settings-updated', {
+      settings: room.settings,
+      updatedBy: socket.userName
+    });
+
+    // Policy enforcement: if host locked mics, force-mute all non-hosts
+    if (settings.allowMic === false) {
+      socket.to(roomId).emit('force-mute-audio');
+    }
+    // If host locked cameras, force-disable video for non-hosts
+    if (settings.allowCamera === false) {
+      socket.to(roomId).emit('force-disable-video');
+    }
+  });
+
+  // 3. Admin / Host: Mute All Participants
+  socket.on('host-mute-all', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    if (socket.id !== room.hostId) return;
+
+    console.log(`[Admin] Host muted all participants in "${roomId}"`);
+    socket.to(roomId).emit('force-mute-audio');
+
+    // Update roster state for all non-hosts
+    room.participants.forEach((p, id) => {
+      if (id !== room.hostId) {
+        p.isAudioMuted = true;
+      }
+    });
+
+    queueDelta(room, {
+      type: 'host-action',
+      action: 'mute-all',
+      message: 'All participants were muted by the host.'
+    });
+  });
+
+  // 4. Admin / Host: Remove / Kick Participant
+  socket.on('host-kick-peer', ({ targetPeerId }) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    if (socket.id !== room.hostId) return;
+
+    console.log(`[Admin] Host kicked peer ${targetPeerId} from "${roomId}"`);
+
+    const targetSocket = io.sockets.sockets.get(targetPeerId);
+    if (targetSocket) {
+      targetSocket.emit('kicked-from-room', {
+        reason: 'You were removed from the meeting by the host.'
+      });
+      targetSocket.leave(roomId);
+      targetSocket.roomId = null;
+    }
+
+    room.participants.delete(targetPeerId);
+    room.activeSpeakers.delete(targetPeerId);
+
+    queueDelta(room, {
+      type: 'user-left',
+      peerId: targetPeerId,
+      reason: 'removed-by-host'
+    });
+  });
+
+  // 5. Paginated Peers for Selective Video
   socket.on('get-page-peers', ({ page = 1, pageSize = 6 }) => {
     const roomId = socket.roomId;
     if (!roomId || !rooms.has(roomId)) return;
@@ -219,7 +342,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 3. Selective SDP Offer Relay (P2P Mesh for small rooms or active speaker tier)
+  // 6. WebRTC SDP Offer Relay
   socket.on('offer', ({ targetPeerId, sdp }) => {
     io.to(targetPeerId).emit('offer', {
       callerPeerId: socket.id,
@@ -228,7 +351,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 4. Selective SDP Answer Relay
+  // 7. WebRTC SDP Answer Relay
   socket.on('answer', ({ targetPeerId, sdp }) => {
     io.to(targetPeerId).emit('answer', {
       responderPeerId: socket.id,
@@ -236,7 +359,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 5. ICE Candidate Relay
+  // 8. ICE Candidate Relay
   socket.on('ice-candidate', ({ targetPeerId, candidate }) => {
     io.to(targetPeerId).emit('ice-candidate', {
       senderPeerId: socket.id,
@@ -244,29 +367,44 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 6. Media State Updates (Throttled & Batched)
+  // 9. Media State Toggle with Permission Check
   socket.on('toggle-media', ({ isAudioMuted, isVideoOff }) => {
     const roomId = socket.roomId;
     if (!roomId || !rooms.has(roomId)) return;
 
     const room = rooms.get(roomId);
+    const isHost = socket.id === room.hostId;
+
+    // Check host policy: if host locked mics/cameras, reject unmuting for non-hosts
+    let finalMuted = isAudioMuted;
+    let finalVideoOff = isVideoOff;
+
+    if (!isHost && !room.settings.allowMic && !isAudioMuted) {
+      socket.emit('admin-warning', { message: 'Microphones are locked by the host.' });
+      finalMuted = true;
+    }
+    if (!isHost && !room.settings.allowCamera && !isVideoOff) {
+      socket.emit('admin-warning', { message: 'Cameras are locked by the host.' });
+      finalVideoOff = true;
+    }
+
     const participant = room.participants.get(socket.id);
     if (participant) {
-      participant.isAudioMuted = isAudioMuted;
-      participant.isVideoOff = isVideoOff;
-      participant.role = isVideoOff && isAudioMuted ? 'audience' : 'speaker';
+      participant.isAudioMuted = finalMuted;
+      participant.isVideoOff = finalVideoOff;
+      participant.role = isHost ? 'host' : finalVideoOff && finalMuted ? 'audience' : 'speaker';
 
       queueDelta(room, {
         type: 'peer-media-toggle',
         peerId: socket.id,
-        isAudioMuted,
-        isVideoOff,
+        isAudioMuted: finalMuted,
+        isVideoOff: finalVideoOff,
         role: participant.role
       });
     }
   });
 
-  // 7. Voice Activity Detection (VAD) / Speaking Level
+  // 10. Voice Activity Detection (VAD)
   socket.on('speaking-level', ({ level }) => {
     const roomId = socket.roomId;
     if (!roomId || !rooms.has(roomId)) return;
@@ -297,12 +435,19 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 8. Screen Sharing Status
+  // 11. Screen Share with Host Permission Check
   socket.on('screen-share-status', ({ isSharing }) => {
     const roomId = socket.roomId;
     if (!roomId || !rooms.has(roomId)) return;
 
     const room = rooms.get(roomId);
+    const isHost = socket.id === room.hostId;
+
+    if (!isHost && !room.settings.allowScreenShare && isSharing) {
+      socket.emit('admin-warning', { message: 'Screen sharing is restricted to meeting hosts.' });
+      return;
+    }
+
     const participant = room.participants.get(socket.id);
     if (participant) {
       participant.isScreenSharing = isSharing;
@@ -314,7 +459,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 9. Raise Hand Notification
+  // 12. Raise Hand
   socket.on('raise-hand', ({ isHandRaised }) => {
     const roomId = socket.roomId;
     if (!roomId || !rooms.has(roomId)) return;
@@ -332,14 +477,23 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 10. In-Call Chat Message
+  // 13. In-Call Chat with Permission Check
   socket.on('send-chat', ({ message }) => {
     const roomId = socket.roomId;
     if (!roomId || !message || !message.trim()) return;
 
+    const room = rooms.get(roomId);
+    const isHost = socket.id === room.hostId;
+
+    if (!isHost && !room.settings.allowChat) {
+      socket.emit('admin-warning', { message: 'In-call chat is turned off by the host.' });
+      return;
+    }
+
     const chatPayload = {
       senderId: socket.id,
       senderName: socket.userName,
+      isHost,
       message: message.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -347,7 +501,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('new-chat-message', chatPayload);
   });
 
-  // 11. Disconnect Cleanup
+  // 14. Disconnect & Host Migration
   socket.on('disconnect', () => {
     const roomId = socket.roomId;
     if (!roomId || !rooms.has(roomId)) return;
@@ -356,13 +510,29 @@ io.on('connection', (socket) => {
     room.participants.delete(socket.id);
     room.activeSpeakers.delete(socket.id);
 
-    console.log(`[Signaling] Peer ${socket.userName} (${socket.id}) disconnected. Remaining: ${room.participants.size}`);
+    console.log(`[Signaling] Peer ${socket.userName} (${socket.id}) disconnected.`);
 
     if (room.participants.size === 0) {
       if (room.flushTimer) clearTimeout(room.flushTimer);
       rooms.delete(roomId);
-      console.log(`[Signaling] Room "${roomId}" cleaned up (empty).`);
+      console.log(`[Signaling] Room "${roomId}" deleted (empty).`);
     } else {
+      // If host left, elect the next available participant as host
+      if (socket.id === room.hostId) {
+        const nextHostId = Array.from(room.participants.keys())[0];
+        room.hostId = nextHostId;
+        const newHost = room.participants.get(nextHostId);
+        if (newHost) {
+          newHost.isHost = true;
+          newHost.role = 'host';
+          io.to(roomId).emit('host-changed', {
+            newHostId,
+            newHostName: newHost.userName
+          });
+          console.log(`[Admin] Host migrated to ${newHost.userName} (${nextHostId}) in room "${roomId}"`);
+        }
+      }
+
       queueDelta(room, {
         type: 'user-left',
         peerId: socket.id,
@@ -372,7 +542,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Fallback to client index.html for SPA routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(clientDistPath, 'index.html'));
 });
@@ -382,8 +551,7 @@ server.listen(PORT, () => {
   console.log(`=============================================================`);
   console.log(`🚀 Scalable Google Meet Signaling Server running on port ${PORT}`);
   console.log(`   Web App:         http://localhost:${PORT}`);
+  console.log(`   Admin Controls:  Active (Role-based permissions & policies)`);
   console.log(`   Load Metrics:    http://localhost:${PORT}/api/metrics`);
-  console.log(`   Health Check:    http://localhost:${PORT}/api/health`);
-  console.log(`   Architecture:    Selective Subscription + Delta Batching`);
   console.log(`=============================================================`);
 });

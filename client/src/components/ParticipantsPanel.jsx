@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { X, Mic, MicOff, Video, VideoOff, Hand, Search } from 'lucide-react';
+import { X, Mic, MicOff, Video, VideoOff, Hand, Search, ShieldCheck, UserX } from 'lucide-react';
 
 export default function ParticipantsPanel({
   userName,
+  isHost,
   isAudioMuted,
   isVideoOff,
   isHandRaised,
   roster,
+  onHostMuteAll,
+  onHostKickPeer,
   onClose
 }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -14,15 +17,15 @@ export default function ParticipantsPanel({
   const peerList = Object.values(roster);
   const totalCount = 1 + peerList.length;
 
-  // Filter peers by search query
   const filteredPeers = peerList.filter((p) =>
     p.userName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Sort peers: Hand raised first, then speakers, then audience
   const sortedPeers = [...filteredPeers].sort((a, b) => {
     if (a.isHandRaised && !b.isHandRaised) return -1;
     if (!a.isHandRaised && b.isHandRaised) return 1;
+    if (a.isHost && !b.isHost) return -1;
+    if (!a.isHost && b.isHost) return 1;
     if (a.role === 'speaker' && b.role !== 'speaker') return -1;
     if (a.role !== 'speaker' && b.role === 'speaker') return 1;
     return a.userName.localeCompare(b.userName);
@@ -70,7 +73,44 @@ export default function ParticipantsPanel({
         </button>
       </div>
 
-      {/* Instant Search Bar for 500+ participants */}
+      {/* Host Controls Action Bar */}
+      {isHost && (
+        <div
+          style={{
+            padding: '10px 16px',
+            backgroundColor: 'rgba(242, 153, 74, 0.1)',
+            borderBottom: '1px solid #3c4043',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#f2994a', fontWeight: '600' }}>
+            <ShieldCheck size={16} /> Host Actions
+          </div>
+          <button
+            type="button"
+            onClick={onHostMuteAll}
+            style={{
+              backgroundColor: '#303134',
+              border: '1px solid #ea4335',
+              color: '#f28b82',
+              borderRadius: '16px',
+              padding: '4px 10px',
+              fontSize: '11px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            <MicOff size={12} /> Mute all
+          </button>
+        </div>
+      )}
+
+      {/* Search Bar */}
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #3c4043' }}>
         <div
           style={{
@@ -128,7 +168,7 @@ export default function ParticipantsPanel({
                 width: '36px',
                 height: '36px',
                 borderRadius: '50%',
-                backgroundColor: '#1a73e8',
+                backgroundColor: isHost ? '#ea4335' : '#1a73e8',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -142,7 +182,9 @@ export default function ParticipantsPanel({
               <div style={{ fontSize: '14px', fontWeight: '500', color: '#ffffff' }}>
                 {userName} (You)
               </div>
-              <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Meeting host</div>
+              <div style={{ fontSize: '12px', color: isHost ? '#f28b82' : '#9aa0a6' }}>
+                {isHost ? 'Meeting host' : 'Participant'}
+              </div>
             </div>
           </div>
 
@@ -173,8 +215,8 @@ export default function ParticipantsPanel({
                   width: '36px',
                   height: '36px',
                   borderRadius: '50%',
-                  backgroundColor: '#8ab4f8',
-                  color: '#202124',
+                  backgroundColor: peer.isHost ? '#ea4335' : '#8ab4f8',
+                  color: peer.isHost ? '#ffffff' : '#202124',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -187,8 +229,8 @@ export default function ParticipantsPanel({
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#ffffff' }}>
                   {peer.userName}
                 </div>
-                <div style={{ fontSize: '11px', color: '#9aa0a6' }}>
-                  {peer.role === 'speaker' ? 'Active Speaker' : 'Audience'}
+                <div style={{ fontSize: '11px', color: peer.isHost ? '#f28b82' : '#9aa0a6' }}>
+                  {peer.isHost ? 'Meeting host' : peer.role === 'speaker' ? 'Active Speaker' : 'Audience'}
                 </div>
               </div>
             </div>
@@ -197,6 +239,31 @@ export default function ParticipantsPanel({
               {peer.isHandRaised && <Hand size={18} color="#f2994a" />}
               {peer.isAudioMuted ? <MicOff size={18} color="#ea4335" /> : <Mic size={18} />}
               {peer.isVideoOff ? <VideoOff size={18} color="#ea4335" /> : <Video size={18} />}
+
+              {/* Host kick/remove button */}
+              {isHost && !peer.isHost && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Remove ${peer.userName} from this meeting?`)) {
+                      onHostKickPeer(peer.peerId);
+                    }
+                  }}
+                  title="Remove from meeting"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#ea4335',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    marginLeft: '4px',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                >
+                  <UserX size={16} />
+                </button>
+              )}
             </div>
           </div>
         ))}
