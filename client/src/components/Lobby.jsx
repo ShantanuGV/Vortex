@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Video, VideoOff, Sparkles, RefreshCw } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, Sparkles, RefreshCw, Lock, Clock } from 'lucide-react';
 import { getParticipantColor } from '../utils/colors';
 
-export default function Lobby({ onJoinRoom }) {
+export default function Lobby({
+  onJoinRoom,
+  isWaiting = false,
+  admissionStatus = null,
+  deniedReason = '',
+  onCancelWaiting = () => {}
+}) {
   const [userName, setUserName] = useState('');
   const [roomId, setRoomId] = useState('');
   const [isAudioMuted, setIsAudioMuted] = useState(false);
@@ -108,6 +114,17 @@ export default function Lobby({ onJoinRoom }) {
         fontFamily: "var(--font-ui, 'Inter', sans-serif)"
       }}
     >
+      <style>{`
+        @keyframes vortex-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes subtle-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(1.04); }
+        }
+      `}</style>
+
       {/* Top Bar */}
       <div
         style={{
@@ -149,7 +166,22 @@ export default function Lobby({ onJoinRoom }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-
+          <span
+            style={{
+              fontSize: '12px',
+              backgroundColor: 'rgba(158, 171, 157, 0.15)',
+              color: '#9EAB9D',
+              padding: '6px 14px',
+              borderRadius: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontWeight: '500',
+              border: '1px solid rgba(158, 171, 157, 0.25)'
+            }}
+          >
+            <Sparkles size={14} /> High-Capacity WebRTC Engine
+          </span>
         </div>
       </div>
 
@@ -292,7 +324,7 @@ export default function Lobby({ onJoinRoom }) {
             </div>
           </div>
 
-          {/* Right Join Form Card */}
+          {/* Right Join / Waiting / Denied Card */}
           <div
             style={{
               width: '380px',
@@ -306,136 +338,273 @@ export default function Lobby({ onJoinRoom }) {
               gap: '24px'
             }}
           >
-            <div>
-              <h1
+            {isWaiting ? (
+              /* Waiting for Host Admission state */
+              <div
                 style={{
-                  fontSize: '30px',
-                  fontWeight: '600',
-                  fontFamily: "var(--font-display, 'Playfair Display', serif)",
-                  color: '#F4F3EF',
-                  marginBottom: '8px',
-                  letterSpacing: '0.4px'
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  textAlign: 'center',
+                  gap: '24px',
+                  padding: '16px 0'
                 }}
               >
-                Ready to enter?
-              </h1>
-              <p style={{ fontSize: '14px', color: '#9EAB9D', lineHeight: '1.4' }}>
-                Join the seamless peer-to-peer workspace with high-fidelity audio & video.
-              </p>
-            </div>
-
-            <form onSubmit={handleJoin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              <div>
-                <label
+                <div
                   style={{
-                    display: 'block',
-                    fontSize: '11px',
-                    color: '#9EAB9D',
-                    textTransform: 'uppercase',
-                    letterSpacing: '1px',
-                    fontWeight: '600',
-                    marginBottom: '8px'
+                    position: 'relative',
+                    width: '84px',
+                    height: '84px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
-                  Your Display Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  placeholder="e.g. Shantanu V"
-                  style={{
-                    width: '100%',
-                    backgroundColor: '#252B2D',
-                    border: '1px solid #3A4245',
-                    borderRadius: '10px',
-                    padding: '12px 16px',
-                    color: '#F4F3EF',
-                    fontSize: '15px',
-                    outline: 'none',
-                    transition: 'border-color 0.2s'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '11px',
-                    color: '#9EAB9D',
-                    textTransform: 'uppercase',
-                    letterSpacing: '1px',
-                    fontWeight: '600',
-                    marginBottom: '8px'
-                  }}
-                >
-                  Meeting Code
-                </label>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <input
-                    type="text"
-                    required
-                    value={roomId}
-                    onChange={(e) => setRoomId(e.target.value)}
-                    placeholder="abc-defg-hij"
+                  <img
+                    src="/vortex-logo.png"
+                    alt="Vortex Waiting"
                     style={{
-                      flex: 1,
-                      backgroundColor: '#252B2D',
-                      border: '1px solid #3A4245',
-                      borderRadius: '10px',
-                      padding: '12px 16px',
-                      color: '#F4F3EF',
-                      fontSize: '15px',
-                      outline: 'none',
-                      letterSpacing: '0.5px'
+                      width: '72px',
+                      height: '72px',
+                      borderRadius: '50%',
+                      animation: 'vortex-spin 4s linear infinite'
                     }}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setRoomId(generateRoomCode())}
-                    title="Generate new meeting code"
+                </div>
+
+                <div>
+                  <h2
                     style={{
-                      backgroundColor: '#252B2D',
-                      border: '1px solid #3A4245',
-                      borderRadius: '10px',
-                      color: '#9EAB9D',
-                      padding: '0 14px',
-                      fontSize: '13px',
-                      cursor: 'pointer',
+                      fontSize: '24px',
                       fontWeight: '600',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      transition: 'background-color 0.2s'
+                      fontFamily: "var(--font-display, 'Playfair Display', serif)",
+                      color: '#F4F3EF',
+                      marginBottom: '8px',
+                      letterSpacing: '0.3px'
                     }}
                   >
-                    <RefreshCw size={14} /> New
-                  </button>
+                    Asking to join...
+                  </h2>
+                  <p style={{ fontSize: '14px', color: '#9EAB9D', lineHeight: '1.5', maxWidth: '280px' }}>
+                    The meeting host has been notified. Someone will let you in shortly.
+                  </p>
                 </div>
-              </div>
 
-              <button
-                type="submit"
+                <button
+                  type="button"
+                  onClick={onCancelWaiting}
+                  style={{
+                    backgroundColor: '#252B2D',
+                    border: '1px solid #3A4245',
+                    color: '#F4F3EF',
+                    padding: '12px 28px',
+                    borderRadius: '24px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.2s'
+                  }}
+                >
+                  Cancel request
+                </button>
+              </div>
+            ) : admissionStatus === 'denied' ? (
+              /* Host Denied Entry state */
+              <div
                 style={{
-                  marginTop: '10px',
-                  backgroundColor: '#9EAB9D',
-                  color: '#252B2D',
-                  border: 'none',
-                  borderRadius: '28px',
-                  padding: '14px',
-                  fontSize: '16px',
-                  fontWeight: '700',
-                  letterSpacing: '0.3px',
-                  cursor: 'pointer',
-                  transition: 'background-color 0.2s, transform 0.1s',
-                  boxShadow: '0 4px 14px rgba(158, 171, 157, 0.35)'
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  textAlign: 'center',
+                  gap: '20px',
+                  padding: '16px 0'
                 }}
               >
-                Join Meeting
-              </button>
-            </form>
+                <div
+                  style={{
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(234, 67, 53, 0.15)',
+                    border: '1px solid rgba(234, 67, 53, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#EA4335'
+                  }}
+                >
+                  <Lock size={30} />
+                </div>
+
+                <div>
+                  <h2
+                    style={{
+                      fontSize: '22px',
+                      fontWeight: '600',
+                      fontFamily: "var(--font-display, 'Playfair Display', serif)",
+                      color: '#F4F3EF',
+                      marginBottom: '8px'
+                    }}
+                  >
+                    You can't join this call
+                  </h2>
+                  <p style={{ fontSize: '13px', color: '#8A9497', lineHeight: '1.5' }}>
+                    {deniedReason || 'The meeting host declined your request to join.'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onCancelWaiting}
+                  style={{
+                    backgroundColor: '#9EAB9D',
+                    color: '#252B2D',
+                    border: 'none',
+                    padding: '12px 28px',
+                    borderRadius: '24px',
+                    fontSize: '14px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Return to Home
+                </button>
+              </div>
+            ) : (
+              /* Standard Join Form */
+              <>
+                <div>
+                  <h1
+                    style={{
+                      fontSize: '30px',
+                      fontWeight: '600',
+                      fontFamily: "var(--font-display, 'Playfair Display', serif)",
+                      color: '#F4F3EF',
+                      marginBottom: '8px',
+                      letterSpacing: '0.4px'
+                    }}
+                  >
+                    Ready to enter?
+                  </h1>
+                  <p style={{ fontSize: '14px', color: '#9EAB9D', lineHeight: '1.4' }}>
+                    Join the seamless peer-to-peer workspace with high-fidelity audio & video.
+                  </p>
+                </div>
+
+                <form onSubmit={handleJoin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                  <div>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '11px',
+                        color: '#9EAB9D',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                        fontWeight: '600',
+                        marginBottom: '8px'
+                      }}
+                    >
+                      Your Display Name
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={userName}
+                      onChange={(e) => setUserName(e.target.value)}
+                      placeholder="e.g. Shantanu V"
+                      style={{
+                        width: '100%',
+                        backgroundColor: '#252B2D',
+                        border: '1px solid #3A4245',
+                        borderRadius: '10px',
+                        padding: '12px 16px',
+                        color: '#F4F3EF',
+                        fontSize: '15px',
+                        outline: 'none',
+                        transition: 'border-color 0.2s'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '11px',
+                        color: '#9EAB9D',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                        fontWeight: '600',
+                        marginBottom: '8px'
+                      }}
+                    >
+                      Meeting Code
+                    </label>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <input
+                        type="text"
+                        required
+                        value={roomId}
+                        onChange={(e) => setRoomId(e.target.value)}
+                        placeholder="abc-defg-hij"
+                        style={{
+                          flex: 1,
+                          backgroundColor: '#252B2D',
+                          border: '1px solid #3A4245',
+                          borderRadius: '10px',
+                          padding: '12px 16px',
+                          color: '#F4F3EF',
+                          fontSize: '15px',
+                          outline: 'none',
+                          letterSpacing: '0.5px'
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRoomId(generateRoomCode())}
+                        title="Generate new meeting code"
+                        style={{
+                          backgroundColor: '#252B2D',
+                          border: '1px solid #3A4245',
+                          borderRadius: '10px',
+                          color: '#9EAB9D',
+                          padding: '0 14px',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          fontWeight: '600',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'background-color 0.2s'
+                        }}
+                      >
+                        <RefreshCw size={14} /> New
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    style={{
+                      marginTop: '10px',
+                      backgroundColor: '#9EAB9D',
+                      color: '#252B2D',
+                      border: 'none',
+                      borderRadius: '28px',
+                      padding: '14px',
+                      fontSize: '16px',
+                      fontWeight: '700',
+                      letterSpacing: '0.3px',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s, transform 0.1s',
+                      boxShadow: '0 4px 14px rgba(158, 171, 157, 0.35)'
+                    }}
+                  >
+                    Join Meeting
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -4,7 +4,7 @@ import Lobby from './components/Lobby';
 import MeetingRoom from './components/MeetingRoom';
 
 export default function App() {
-  const [inMeeting, setInMeeting] = useState(false);
+  const [hasRequestedJoin, setHasRequestedJoin] = useState(false);
 
   const {
     localStream,
@@ -24,12 +24,22 @@ export default function App() {
     hostMutePeer,
     hostKickPeer,
     hostEndMeeting,
+    // Host Admission / Waiting Room
+    isWaitingForAdmission,
+    admissionStatus,
+    deniedReason,
+    waitingPeers,
+    admitPeer,
+    denyPeer,
+    admitAllPeers,
+    cancelWaiting,
     updatePersonalSettings,
     isAudioMuted,
     isVideoOff,
     isScreenSharing,
     isHandRaised,
     chatMessages,
+    isConnected,
     roomId,
     userName,
     joinRoom,
@@ -42,24 +52,39 @@ export default function App() {
   } = useWebRTC();
 
   const handleJoinRoom = async ({ roomId: id, userName: name, isAudioMuted: audioMuted, isVideoOff: videoOff }) => {
+    setHasRequestedJoin(true);
     await joinRoom({
       roomId: id,
       userName: name,
       initialAudioMuted: audioMuted,
       initialVideoOff: videoOff
     });
-    setInMeeting(true);
+  };
+
+  const handleCancelWaiting = () => {
+    cancelWaiting();
+    setHasRequestedJoin(false);
   };
 
   const handleLeaveRoom = () => {
     leaveRoom();
-    setInMeeting(false);
+    setHasRequestedJoin(false);
   };
+
+  // Determine if participant is actively in the meeting room:
+  // Must have requested join, be connected, and NOT be waiting in the admission lobby
+  const isInMeetingRoom = hasRequestedJoin && isConnected && !isWaitingForAdmission && admissionStatus !== 'denied';
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      {!inMeeting ? (
-        <Lobby onJoinRoom={handleJoinRoom} />
+      {!isInMeetingRoom ? (
+        <Lobby
+          onJoinRoom={handleJoinRoom}
+          isWaiting={isWaitingForAdmission}
+          admissionStatus={admissionStatus}
+          deniedReason={deniedReason}
+          onCancelWaiting={handleCancelWaiting}
+        />
       ) : (
         <MeetingRoom
           localStream={localStream}
@@ -81,6 +106,10 @@ export default function App() {
           chatMessages={chatMessages}
           roomSettings={roomSettings}
           personalSettings={personalSettings}
+          waitingPeers={waitingPeers}
+          onAdmitPeer={admitPeer}
+          onDenyPeer={denyPeer}
+          onAdmitAllPeers={admitAllPeers}
           onUpdateRoomSettings={updateRoomSettings}
           onHostMuteAll={hostMuteAll}
           onHostMutePeer={hostMutePeer}

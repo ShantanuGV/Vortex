@@ -60,12 +60,14 @@ function getOrCreateRoom(roomId) {
       hostId: null,
       settings: {
         isLocked: false,
+        hostAdmission: true, // Host admission (waiting room) enabled by default
         allowScreenShare: true,
         allowChat: true,
         allowMic: true,
         allowCamera: true
       },
       participants: new Map(),
+      waitingParticipants: new Map(), // socketId -> { peerId, userName, isAudioMuted, isVideoOff, requestedAt }
       activeSpeakers: new Set(),
       pendingDeltas: [],
       flushTimer: null,
@@ -166,10 +168,66 @@ app.get('/api/rooms/:roomId', (req, res) => {
   });
 });
 
+// --- Helper: Admit a Participant into a Room ---
+function admitParticipantToRoom(room, socket, { isAudioMuted = false, isVideoOff = false }) {
+  const isHost = socket.id === room.hostId;
+  socket.join(room.id);
+  socket.roomId = room.id;
+
+  // Apply host room policy defaults if restricted
+  let actualAudioMuted = isAudioMuted;
+  let actualVideoOff = isVideoOff;
+  if (!isHost && !room.settings.allowMic) {
+    actualAudioMuted = true;
+  }
+  if (!isHost && !room.settings.allowCamera) {
+    actualVideoOff = true;
+  }
+
+  const participantData = {
+    peerId: socket.id,
+    userName: socket.userName,
+    isAudioMuted: actualAudioMuted,
+    isVideoOff: actualVideoOff,
+    isScreenSharing: false,
+    isHandRaised: false,
+    isHost,
+    role: isHost ? 'host' : actualVideoOff && actualAudioMuted ? 'audience' : 'speaker',
+    speakingLevel: 0,
+    joinedAt: Date.now()
+  };
+
+  room.participants.set(socket.id, participantData);
+  room.waitingParticipants.delete(socket.id);
+
+  console.log(`[Signaling] ${socket.userName} (${socket.id}) admitted into "${room.id}" [Host: ${isHost}]. Total: ${room.participants.size}`);
+
+  const allParticipants = Array.from(room.participants.values());
+  const waitingList = isHost ? Array.from(room.waitingParticipants.values()) : [];
+
+  // Send full snapshot including host authority, room settings, and waiting list
+  socket.emit('room-snapshot', {
+    roomId: room.id,
+    isHost,
+    hostId: room.hostId,
+    settings: room.settings,
+    totalParticipants: room.participants.size,
+    participants: allParticipants,
+    waitingList,
+    activeSpeakers: Array.from(room.activeSpeakers)
+  });
+
+  // Notify other peers
+  queueDelta(room, {
+    type: 'user-joined',
+    participant: participantData
+  });
+}
+
 // --- Socket.IO Event Handlers with Authority Enforcement ---
 
 io.on('connection', (socket) => {
-  // 1. Join Room
+  // 1. Join Room (with Host Admission / Waiting Room)
   socket.on('join-room', ({ roomId, userName, isAudioMuted = false, isVideoOff = false }) => {
     const room = getOrCreateRoom(roomId);
 
@@ -181,7 +239,6 @@ io.on('connection', (socket) => {
       return;
     }
 
-    socket.join(roomId);
     socket.roomId = roomId;
     socket.userName = userName || `User-${socket.id.slice(0, 4)}`;
 
@@ -192,51 +249,127 @@ io.on('connection', (socket) => {
     }
     const isHost = socket.id === room.hostId;
 
-    // Apply host room policy defaults if restricted
-    let actualAudioMuted = isAudioMuted;
-    let actualVideoOff = isVideoOff;
-    if (!isHost && !room.settings.allowMic) {
-      actualAudioMuted = true;
+    // Host Admission Check:
+    // If room already has a host and hostAdmission is enabled, put participant in waiting room
+    if (!isHost && room.settings.hostAdmission) {
+      room.waitingParticipants.set(socket.id, {
+        peerId: socket.id,
+        userName: socket.userName,
+        isAudioMuted,
+        isVideoOff,
+        requestedAt: Date.now()
+      });
+
+      console.log(`[Admission] ${socket.userName} (${socket.id}) is waiting for host admission in "${roomId}"`);
+
+      // Notify the waiting participant to show waiting state in Lobby
+      socket.emit('waiting-for-admission', {
+        message: 'Waiting for the meeting host to let you in...'
+      });
+
+      // Notify the host about the knock request
+      if (room.hostId) {
+        io.to(room.hostId).emit('participant-knock', {
+          peerId: socket.id,
+          userName: socket.userName,
+          requestedAt: Date.now()
+        });
+      }
+      return;
     }
-    if (!isHost && !room.settings.allowCamera) {
-      actualVideoOff = true;
+
+    // Direct admission (Host or hostAdmission disabled)
+    admitParticipantToRoom(room, socket, { isAudioMuted, isVideoOff });
+  });
+
+  // 1b. Host Admits a Waiting Participant
+  socket.on('admit-peer', ({ targetPeerId }) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    if (socket.id !== room.hostId) return;
+
+    const waiting = room.waitingParticipants.get(targetPeerId);
+    if (!waiting) return;
+
+    const targetSocket = io.sockets.sockets.get(targetPeerId);
+    if (!targetSocket) {
+      room.waitingParticipants.delete(targetPeerId);
+      socket.emit('knock-handled', { peerId: targetPeerId, status: 'unavailable' });
+      return;
     }
 
-    const participantData = {
-      peerId: socket.id,
-      userName: socket.userName,
-      isAudioMuted: actualAudioMuted,
-      isVideoOff: actualVideoOff,
-      isScreenSharing: false,
-      isHandRaised: false,
-      isHost,
-      role: isHost ? 'host' : actualVideoOff && actualAudioMuted ? 'audience' : 'speaker',
-      speakingLevel: 0,
-      joinedAt: Date.now()
-    };
+    console.log(`[Admission] Host approved entry for ${waiting.userName} (${targetPeerId}) in "${roomId}"`);
 
-    room.participants.set(socket.id, participantData);
-
-    console.log(`[Signaling] ${socket.userName} (${socket.id}) joined "${roomId}" [Host: ${isHost}]. Total: ${room.participants.size}`);
-
-    const allParticipants = Array.from(room.participants.values());
-
-    // Send full snapshot including host authority and room settings
-    socket.emit('room-snapshot', {
-      roomId,
-      isHost,
-      hostId: room.hostId,
-      settings: room.settings,
-      totalParticipants: room.participants.size,
-      participants: allParticipants,
-      activeSpeakers: Array.from(room.activeSpeakers)
+    // Admit target participant
+    admitParticipantToRoom(room, targetSocket, {
+      isAudioMuted: waiting.isAudioMuted,
+      isVideoOff: waiting.isVideoOff
     });
 
-    // Notify other peers
-    queueDelta(room, {
-      type: 'user-joined',
-      participant: participantData
+    // Notify host that knock was accepted
+    socket.emit('knock-handled', { peerId: targetPeerId, status: 'admitted' });
+  });
+
+  // 1c. Host Denies a Waiting Participant
+  socket.on('deny-peer', ({ targetPeerId }) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    if (socket.id !== room.hostId) return;
+
+    const waiting = room.waitingParticipants.get(targetPeerId);
+    if (waiting) {
+      console.log(`[Admission] Host declined entry for ${waiting.userName} (${targetPeerId}) in "${roomId}"`);
+      room.waitingParticipants.delete(targetPeerId);
+
+      const targetSocket = io.sockets.sockets.get(targetPeerId);
+      if (targetSocket) {
+        targetSocket.emit('join-denied', {
+          message: 'The meeting host declined your request to join.'
+        });
+      }
+    }
+
+    socket.emit('knock-handled', { peerId: targetPeerId, status: 'denied' });
+  });
+
+  // 1d. Host Admits All Waiting Participants
+  socket.on('admit-all-peers', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    if (socket.id !== room.hostId) return;
+
+    const waitingList = Array.from(room.waitingParticipants.values());
+    waitingList.forEach((waiting) => {
+      const targetSocket = io.sockets.sockets.get(waiting.peerId);
+      if (targetSocket) {
+        admitParticipantToRoom(room, targetSocket, {
+          isAudioMuted: waiting.isAudioMuted,
+          isVideoOff: waiting.isVideoOff
+        });
+      }
     });
+    room.waitingParticipants.clear();
+    socket.emit('knock-all-handled');
+  });
+
+  // 1e. Participant cancels waiting
+  socket.on('cancel-waiting', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    if (room.waitingParticipants.has(socket.id)) {
+      room.waitingParticipants.delete(socket.id);
+      if (room.hostId) {
+        io.to(room.hostId).emit('knock-cancelled', { peerId: socket.id });
+      }
+    }
   });
 
   // 2. Admin / Host: Update Meeting Settings
@@ -551,6 +684,16 @@ io.on('connection', (socket) => {
     if (!roomId || !rooms.has(roomId)) return;
 
     const room = rooms.get(roomId);
+
+    // If waiting participant disconnected, remove and notify host
+    if (room.waitingParticipants.has(socket.id)) {
+      room.waitingParticipants.delete(socket.id);
+      if (room.hostId) {
+        io.to(room.hostId).emit('knock-cancelled', { peerId: socket.id });
+      }
+      return;
+    }
+
     room.participants.delete(socket.id);
     room.activeSpeakers.delete(socket.id);
 

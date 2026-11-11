@@ -27,6 +27,10 @@ export default function MeetingRoom({
   chatMessages,
   roomSettings,
   personalSettings,
+  waitingPeers = [],
+  onAdmitPeer = () => {},
+  onDenyPeer = () => {},
+  onAdmitAllPeers = () => {},
   onUpdateRoomSettings,
   onHostMuteAll,
   onHostMutePeer,
@@ -87,6 +91,111 @@ export default function MeetingRoom({
         />
       )}
 
+      {/* Host Admission Knocking Banner (Google Meet style) */}
+      {isHost && waitingPeers && waitingPeers.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: '#2E3538',
+            border: '1px solid #9EAB9D',
+            borderRadius: '18px',
+            padding: '12px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '20px',
+            boxShadow: '0 16px 40px rgba(0, 0, 0, 0.65)',
+            zIndex: 60,
+            backdropFilter: 'blur(10px)',
+            fontFamily: "var(--font-ui, 'Inter', sans-serif)"
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '50%',
+                backgroundColor: '#9EAB9D',
+                color: '#252B2D',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: '700',
+                fontSize: '16px'
+              }}
+            >
+              {waitingPeers[0]?.userName?.charAt(0).toUpperCase() || 'P'}
+            </div>
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: '600', color: '#F4F3EF' }}>
+                {waitingPeers[0]?.userName}
+              </div>
+              <div style={{ fontSize: '12px', color: '#9EAB9D' }}>
+                wants to join this call {waitingPeers.length > 1 && `(+${waitingPeers.length - 1} more)`}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              onClick={() => onDenyPeer(waitingPeers[0].peerId)}
+              style={{
+                backgroundColor: '#252B2D',
+                border: '1px solid #3A4245',
+                color: '#F4F3EF',
+                borderRadius: '16px',
+                padding: '7px 16px',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'background-color 0.2s'
+              }}
+            >
+              Deny
+            </button>
+
+            <button
+              onClick={() => onAdmitPeer(waitingPeers[0].peerId)}
+              style={{
+                backgroundColor: '#9EAB9D',
+                border: 'none',
+                color: '#252B2D',
+                borderRadius: '16px',
+                padding: '7px 18px',
+                fontSize: '12px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                transition: 'background-color 0.2s, transform 0.1s',
+                boxShadow: '0 2px 8px rgba(158, 171, 157, 0.3)'
+              }}
+            >
+              Admit
+            </button>
+
+            {waitingPeers.length > 1 && (
+              <button
+                onClick={onAdmitAllPeers}
+                style={{
+                  backgroundColor: '#3A4245',
+                  border: 'none',
+                  color: '#F4F3EF',
+                  borderRadius: '16px',
+                  padding: '7px 14px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Admit all ({waitingPeers.length})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Center Video Area + Optional Side Panel */}
       <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
         {/* Video Grid */}
@@ -129,6 +238,10 @@ export default function MeetingRoom({
             isVideoOff={isVideoOff}
             isHandRaised={isHandRaised}
             roster={roster}
+            waitingPeers={waitingPeers}
+            onAdmitPeer={onAdmitPeer}
+            onDenyPeer={onDenyPeer}
+            onAdmitAllPeers={onAdmitAllPeers}
             onHostMuteAll={onHostMuteAll}
             onHostMutePeer={onHostMutePeer}
             onHostKickPeer={onHostKickPeer}

@@ -82,6 +82,12 @@ export function useWebRTC() {
   const [roomId, setRoomId] = useState(null);
   const [userName, setUserName] = useState('');
 
+  // Host Admission / Waiting Room states
+  const [isWaitingForAdmission, setIsWaitingForAdmission] = useState(false);
+  const [admissionStatus, setAdmissionStatus] = useState(null); // null | 'waiting' | 'denied'
+  const [deniedReason, setDeniedReason] = useState('');
+  const [waitingPeers, setWaitingPeers] = useState([]); // Array of { peerId, userName, requestedAt }
+
   const socketRef = useRef(null);
   const peerConnections = useRef({}); // peerId -> RTCPeerConnection
   const remoteStreamsRef = useRef({}); // peerId -> MediaStream (persistent)
@@ -381,12 +387,56 @@ export function useWebRTC() {
       });
     });
 
+    // Waiting for host admission
+    socket.on('waiting-for-admission', ({ message }) => {
+      console.log('[Admission] Waiting for host approval:', message);
+      setIsWaitingForAdmission(true);
+      setAdmissionStatus('waiting');
+    });
+
+    // Host denied request
+    socket.on('join-denied', ({ message }) => {
+      console.log('[Admission] Request was denied by host:', message);
+      setIsWaitingForAdmission(false);
+      setAdmissionStatus('denied');
+      setDeniedReason(message || 'The host declined your request to join.');
+    });
+
+    // Knocking notification for Host
+    socket.on('participant-knock', ({ peerId, userName, requestedAt }) => {
+      console.log(`[Admission] New participant knocking: ${userName} (${peerId})`);
+      setWaitingPeers((prev) => {
+        const filtered = prev.filter((p) => p.peerId !== peerId);
+        return [...filtered, { peerId, userName, requestedAt }];
+      });
+    });
+
+    // Knock handled
+    socket.on('knock-handled', ({ peerId }) => {
+      setWaitingPeers((prev) => prev.filter((p) => p.peerId !== peerId));
+    });
+
+    // Knock cancelled
+    socket.on('knock-cancelled', ({ peerId }) => {
+      setWaitingPeers((prev) => prev.filter((p) => p.peerId !== peerId));
+    });
+
+    // Knock all handled
+    socket.on('knock-all-handled', () => {
+      setWaitingPeers([]);
+    });
+
     // Room Snapshot with Admin & Authority state
-    socket.on('room-snapshot', ({ participants, isHost: hostStatus, hostId: currentHostId, settings }) => {
+    socket.on('room-snapshot', ({ participants, isHost: hostStatus, hostId: currentHostId, settings, waitingList }) => {
+      setIsWaitingForAdmission(false);
+      setAdmissionStatus(null);
       setIsHost(hostStatus);
       setHostId(currentHostId);
       if (settings) {
         setRoomSettings(settings);
+      }
+      if (waitingList) {
+        setWaitingPeers(waitingList);
       }
 
       const map = {};
@@ -733,6 +783,39 @@ export function useWebRTC() {
     }
   }, [isHost]);
 
+  // Host Admission actions
+  const admitPeer = useCallback((targetPeerId) => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('admit-peer', { targetPeerId });
+    }
+  }, [isHost]);
+
+  const denyPeer = useCallback((targetPeerId) => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('deny-peer', { targetPeerId });
+    }
+  }, [isHost]);
+
+  const admitAllPeers = useCallback(() => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('admit-all-peers');
+    }
+  }, [isHost]);
+
+  // Waiting participant action
+  const cancelWaiting = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('cancel-waiting');
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    setIsWaitingForAdmission(false);
+    setAdmissionStatus(null);
+  }, []);
+
   // --- Personal Settings Updates ---
 
   const updatePersonalSettings = useCallback(async (partial) => {
@@ -807,6 +890,9 @@ export function useWebRTC() {
     setRoomId(null);
     setIsScreenSharing(false);
     setChatMessages([]);
+    setIsWaitingForAdmission(false);
+    setAdmissionStatus(null);
+    setWaitingPeers([]);
   }, [cleanupPeer]);
 
   useEffect(() => {
@@ -853,6 +939,15 @@ export function useWebRTC() {
     hostMutePeer,
     hostKickPeer,
     hostEndMeeting,
+    // Host Admission / Waiting Room
+    isWaitingForAdmission,
+    admissionStatus,
+    deniedReason,
+    waitingPeers,
+    admitPeer,
+    denyPeer,
+    admitAllPeers,
+    cancelWaiting,
     updatePersonalSettings,
     // Media Controls
     isAudioMuted,

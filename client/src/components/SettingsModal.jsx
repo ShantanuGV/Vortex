@@ -648,6 +648,19 @@ export default function SettingsModal({
 
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '10px' }}>
                       <div>
+                        <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Host admission (Waiting Room)</div>
+                        <div style={{ fontSize: '12px', color: '#8A9497' }}>Participants must be approved by the host before entering</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={roomSettings.hostAdmission ?? true}
+                        onChange={() => handleHostToggle('hostAdmission')}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '10px' }}>
+                      <div>
                         <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Lock meeting</div>
                         <div style={{ fontSize: '12px', color: '#8A9497' }}>Prevent any new participants from joining</div>
                       </div>

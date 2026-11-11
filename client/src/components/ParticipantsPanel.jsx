@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mic, MicOff, Video, VideoOff, Hand, Search, ShieldCheck, UserX } from 'lucide-react';
+import { X, Mic, MicOff, Video, VideoOff, Hand, Search, ShieldCheck, UserX, UserPlus, Clock } from 'lucide-react';
 import { getParticipantColor } from '../utils/colors';
 
 export default function ParticipantsPanel({
@@ -9,6 +9,10 @@ export default function ParticipantsPanel({
   isVideoOff,
   isHandRaised,
   roster,
+  waitingPeers = [],
+  onAdmitPeer = () => {},
+  onDenyPeer = () => {},
+  onAdmitAllPeers = () => {},
   onHostMuteAll,
   onHostMutePeer,
   onHostKickPeer,
@@ -124,6 +128,122 @@ export default function ParticipantsPanel({
           >
             <MicOff size={13} /> Mute all
           </button>
+        </div>
+      )}
+
+      {/* Waiting Room Section for Host */}
+      {isHost && waitingPeers && waitingPeers.length > 0 && (
+        <div
+          style={{
+            padding: '12px 16px',
+            backgroundColor: 'rgba(158, 171, 157, 0.08)',
+            borderBottom: '1px solid #3A4245',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '700', color: '#9EAB9D', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+              <Clock size={13} /> Waiting to join ({waitingPeers.length})
+            </div>
+            {waitingPeers.length > 1 && (
+              <button
+                type="button"
+                onClick={onAdmitAllPeers}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#9EAB9D',
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  textDecoration: 'underline'
+                }}
+              >
+                Admit all
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {waitingPeers.map((waiting) => {
+              const color = getParticipantColor(waiting.userName || waiting.peerId);
+              return (
+                <div
+                  key={waiting.peerId}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 10px',
+                    borderRadius: '8px',
+                    backgroundColor: '#2E3538',
+                    border: '1px solid #3A4245'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div
+                      style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '50%',
+                        backgroundColor: color,
+                        color: '#252B2D',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: '700',
+                        fontSize: '13px'
+                      }}
+                    >
+                      {waiting.userName ? waiting.userName.charAt(0).toUpperCase() : 'W'}
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: '500', color: '#F4F3EF' }}>
+                      {waiting.userName}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => onDenyPeer(waiting.peerId)}
+                      title="Deny entry"
+                      style={{
+                        backgroundColor: '#252B2D',
+                        border: '1px solid #3A4245',
+                        color: '#8A9497',
+                        borderRadius: '12px',
+                        padding: '3px 8px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Deny
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAdmitPeer(waiting.peerId)}
+                      title="Admit to call"
+                      style={{
+                        backgroundColor: '#9EAB9D',
+                        border: 'none',
+                        color: '#252B2D',
+                        borderRadius: '12px',
+                        padding: '3px 10px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Admit
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
