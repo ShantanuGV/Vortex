@@ -295,6 +295,33 @@ io.on('connection', (socket) => {
     });
   });
 
+  // 3b. Admin / Host: Mute an Individual Participant
+  socket.on('host-mute-peer', ({ targetPeerId }) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms.has(roomId)) return;
+    const room = rooms.get(roomId);
+
+    if (socket.id !== room.hostId) return;
+
+    console.log(`[Admin] Host muted participant ${targetPeerId} in "${roomId}"`);
+    const targetSocket = io.sockets.sockets.get(targetPeerId);
+    if (targetSocket) {
+      targetSocket.emit('force-mute-audio');
+    }
+
+    const participant = room.participants.get(targetPeerId);
+    if (participant) {
+      participant.isAudioMuted = true;
+      queueDelta(room, {
+        type: 'peer-media-toggle',
+        peerId: targetPeerId,
+        isAudioMuted: true,
+        isVideoOff: participant.isVideoOff,
+        role: participant.role
+      });
+    }
+  });
+
   // 4. Admin / Host: Remove / Kick Participant
   socket.on('host-kick-peer', ({ targetPeerId }) => {
     const roomId = socket.roomId;

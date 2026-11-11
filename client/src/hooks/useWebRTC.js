@@ -712,6 +712,13 @@ export function useWebRTC() {
     }
   }, [isHost]);
 
+  const hostMutePeer = useCallback((targetPeerId) => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('host-mute-peer', { targetPeerId });
+    }
+  }, [isHost]);
+
   const hostKickPeer = useCallback((targetPeerId) => {
     if (!isHost) return;
     if (socketRef.current) {
@@ -843,6 +850,7 @@ export function useWebRTC() {
     personalSettings,
     updateRoomSettings,
     hostMuteAll,
+    hostMutePeer,
     hostKickPeer,
     hostEndMeeting,
     updatePersonalSettings,

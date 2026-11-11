@@ -1,9 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MicOff, Pin, Hand, Volume2 } from 'lucide-react';
+import { getParticipantColor } from '../utils/colors';
 
 export default function VideoTile({
   stream,
   userName,
+  peerId,
   isAudioMuted = false,
   isVideoOff = false,
   isLocal = false,
@@ -11,15 +13,17 @@ export default function VideoTile({
   isPinned = false,
   isSpeaking = false,
   isHandRaised = false,
+  isHost = false,
   mirrorVideo = true,
   lightingBoost = false,
-  backgroundEffect = 'none', // 'none' | 'slight-blur' | 'heavy-blur'
-  onPin = () => {}
+  backgroundEffect = 'none',
+  onPin = () => {},
+  onMutePeer = () => {}
 }) {
   const videoRef = useRef(null);
   const audioRef = useRef(null);
+  const [isHovered, setIsHovered] = useState(false);
 
-  // Attach stream to both video and dedicated audio elements
   useEffect(() => {
     if (videoRef.current) {
       if (stream) {
@@ -30,7 +34,6 @@ export default function VideoTile({
       }
     }
 
-    // Remote audio playback via dedicated audio element
     if (audioRef.current && !isLocal) {
       if (stream && stream.getAudioTracks().length > 0) {
         audioRef.current.srcObject = stream;
@@ -42,8 +45,8 @@ export default function VideoTile({
   }, [stream, isLocal]);
 
   const initial = userName ? userName.charAt(0).toUpperCase() : '?';
+  const avatarBgColor = getParticipantColor(userName || peerId || 'User');
 
-  // Video filter computation (Lighting Boost & Background Blur)
   let videoFilter = 'none';
   if (backgroundEffect === 'slight-blur') {
     videoFilter = 'blur(4px)';
@@ -51,15 +54,17 @@ export default function VideoTile({
     videoFilter = 'blur(10px)';
   }
   if (lightingBoost) {
-    videoFilter = videoFilter === 'none' ? 'brightness(1.25) contrast(1.1)' : `${videoFilter} brightness(1.25) contrast(1.1)`;
+    videoFilter = videoFilter === 'none' ? 'brightness(1.22) contrast(1.08)' : `${videoFilter} brightness(1.22) contrast(1.08)`;
   }
 
   return (
     <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{
         position: 'relative',
-        backgroundColor: '#3c4043',
-        borderRadius: '12px',
+        backgroundColor: '#2E3538',
+        borderRadius: '16px',
         overflow: 'hidden',
         display: 'flex',
         alignItems: 'center',
@@ -67,15 +72,15 @@ export default function VideoTile({
         width: '100%',
         height: '100%',
         boxShadow: isSpeaking
-          ? '0 0 0 3px #1a73e8, 0 8px 16px rgba(26, 115, 232, 0.4)'
+          ? '0 0 0 2px #9EAB9D, 0 8px 24px rgba(158, 171, 157, 0.35)'
           : isPinned
-          ? '0 0 0 2px #8ab4f8'
-          : '0 4px 6px -1px rgba(0, 0, 0, 0.3)',
-        transition: 'all 0.2s ease-in-out',
-        border: '1px solid #4a4d51'
+          ? '0 0 0 2px #F4F3EF'
+          : '0 4px 12px rgba(0, 0, 0, 0.35)',
+        transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+        border: '1px solid #3A4245'
       }}
     >
-      {/* Dedicated Audio Element for Remote Peers */}
+      {/* Remote Audio Track Playback */}
       {!isLocal && (
         <audio
           ref={audioRef}
@@ -84,12 +89,12 @@ export default function VideoTile({
         />
       )}
 
-      {/* Video element - Kept mounted with visibility toggle so Chrome never suspends audio */}
+      {/* Video Element */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isLocal} // Local video must be muted to avoid feedback loop
+        muted={isLocal}
         style={{
           width: '100%',
           height: '100%',
@@ -98,11 +103,11 @@ export default function VideoTile({
           opacity: isVideoOff ? 0 : 1,
           filter: videoFilter,
           pointerEvents: isVideoOff ? 'none' : 'auto',
-          transition: 'opacity 0.2s ease'
+          transition: 'opacity 0.25s ease'
         }}
       />
 
-      {/* Avatar when camera is turned off */}
+      {/* Aesthetic Avatar Display when camera is off */}
       {isVideoOff && (
         <div
           style={{
@@ -112,30 +117,41 @@ export default function VideoTile({
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '12px',
-            backgroundColor: '#3c4043',
+            gap: '14px',
+            backgroundColor: '#2E3538',
             zIndex: 2
           }}
         >
           <div
             style={{
-              width: '96px',
-              height: '96px',
+              width: '92px',
+              height: '92px',
               borderRadius: '50%',
-              backgroundColor: isSpeaking ? '#1a73e8' : '#5f6368',
-              color: '#ffffff',
+              backgroundColor: avatarBgColor,
+              color: '#F4F3EF',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '36px',
-              fontWeight: '600',
-              boxShadow: isSpeaking ? '0 0 24px rgba(26, 115, 232, 0.9)' : '0 4px 12px rgba(0,0,0,0.4)',
-              transition: 'background-color 0.2s, box-shadow 0.2s'
+              fontSize: '34px',
+              fontFamily: 'var(--font-display)',
+              fontWeight: '500',
+              border: '2px solid rgba(244, 243, 239, 0.2)',
+              boxShadow: isSpeaking 
+                ? '0 0 0 4px rgba(158, 171, 157, 0.4), 0 8px 24px rgba(0,0,0,0.5)' 
+                : '0 6px 16px rgba(0, 0, 0, 0.4)',
+              transition: 'all 0.25s ease'
             }}
           >
             {initial}
           </div>
-          <span style={{ fontSize: '15px', color: '#e8eaed', fontWeight: '500' }}>
+          <span
+            style={{
+              fontSize: '14px',
+              color: '#F4F3EF',
+              fontWeight: '500',
+              letterSpacing: '-0.01em'
+            }}
+          >
             {userName} {isLocal && '(You)'}
           </span>
         </div>
@@ -149,96 +165,150 @@ export default function VideoTile({
             position: 'absolute',
             top: '12px',
             left: '12px',
-            backgroundColor: '#f2994a',
-            color: '#202124',
-            borderRadius: '16px',
-            padding: '4px 8px',
+            backgroundColor: '#D8A464',
+            color: '#252B2D',
+            borderRadius: '20px',
+            padding: '4px 10px',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
-            fontSize: '12px',
+            gap: '5px',
+            fontSize: '11px',
             fontWeight: '600',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
             zIndex: 4
           }}
         >
-          <Hand size={14} /> Raised hand
+          <Hand size={13} /> Raised hand
         </div>
       )}
 
-      {/* Top Right: Pin button */}
-      <button
-        onClick={onPin}
-        title={isPinned ? 'Unpin' : 'Pin to screen'}
+      {/* Top Right Actions (Pin & Admin Quick Mute) */}
+      <div
         style={{
           position: 'absolute',
           top: '12px',
           right: '12px',
-          backgroundColor: isPinned ? '#8ab4f8' : 'rgba(32, 33, 36, 0.7)',
-          color: isPinned ? '#202124' : '#ffffff',
-          border: 'none',
-          borderRadius: '50%',
-          width: '32px',
-          height: '32px',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          backdropFilter: 'blur(4px)',
-          transition: 'all 0.2s',
+          gap: '8px',
           zIndex: 4
         }}
       >
-        <Pin size={16} />
-      </button>
+        {/* Admin Quick Mute Button */}
+        {isHost && !isLocal && !isAudioMuted && (isHovered || isSpeaking) && (
+          <button
+            onClick={() => onMutePeer(peerId)}
+            title="Mute this participant"
+            style={{
+              backgroundColor: 'rgba(217, 107, 107, 0.9)',
+              color: '#F4F3EF',
+              border: 'none',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+              backdropFilter: 'blur(4px)',
+              transition: 'transform 0.15s, background-color 0.2s'
+            }}
+          >
+            <MicOff size={14} />
+          </button>
+        )}
 
-      {/* Bottom info pill */}
+        {/* Pin button */}
+        {(isHovered || isPinned) && (
+          <button
+            onClick={onPin}
+            title={isPinned ? 'Unpin from screen' : 'Pin to screen'}
+            style={{
+              backgroundColor: isPinned ? '#F4F3EF' : 'rgba(37, 43, 45, 0.75)',
+              color: isPinned ? '#252B2D' : '#F4F3EF',
+              border: 'none',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              backdropFilter: 'blur(4px)',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Pin size={15} />
+          </button>
+        )}
+      </div>
+
+      {/* Bottom Info Pill (With Google Meet-style highlighted "You" tag) */}
       <div
         style={{
           position: 'absolute',
           bottom: '12px',
           left: '12px',
-          backgroundColor: 'rgba(32, 33, 36, 0.8)',
+          backgroundColor: 'rgba(37, 43, 45, 0.85)',
           padding: '4px 10px',
-          borderRadius: '16px',
+          borderRadius: '20px',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          backdropFilter: 'blur(4px)',
+          backdropFilter: 'blur(6px)',
           maxWidth: 'calc(100% - 24px)',
+          border: '1px solid rgba(244, 243, 239, 0.08)',
           zIndex: 4
         }}
       >
         <span
           style={{
             fontSize: '13px',
-            color: '#ffffff',
+            color: '#F4F3EF',
             fontWeight: '500',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap'
           }}
         >
-          {userName} {isLocal && '(You)'}
+          {userName}
         </span>
 
+        {/* Highlighted "You" Badge like Google Meet */}
+        {isLocal && (
+          <span
+            style={{
+              backgroundColor: 'rgba(158, 171, 157, 0.25)',
+              color: '#9EAB9D',
+              padding: '1px 6px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: '600',
+              letterSpacing: '0.2px'
+            }}
+          >
+            You
+          </span>
+        )}
+
         {isSpeaking && !isAudioMuted && (
-          <Volume2 size={14} color="#8ab4f8" className="animate-pulse" />
+          <Volume2 size={14} color="#9EAB9D" className="animate-pulse" />
         )}
 
         {isAudioMuted && (
           <div
             style={{
-              backgroundColor: '#ea4335',
+              backgroundColor: '#D96B6B',
               borderRadius: '50%',
-              width: '20px',
-              height: '20px',
+              width: '18px',
+              height: '18px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}
           >
-            <MicOff size={12} color="#ffffff" />
+            <MicOff size={11} color="#F4F3EF" />
           </div>
         )}
       </div>

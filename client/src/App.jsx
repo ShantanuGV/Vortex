@@ -21,6 +21,7 @@ export default function App() {
     personalSettings,
     updateRoomSettings,
     hostMuteAll,
+    hostMutePeer,
     hostKickPeer,
     hostEndMeeting,
     updatePersonalSettings,
@@ -82,6 +83,7 @@ export default function App() {
           personalSettings={personalSettings}
           onUpdateRoomSettings={updateRoomSettings}
           onHostMuteAll={hostMuteAll}
+          onHostMutePeer={hostMutePeer}
           onHostKickPeer={hostKickPeer}
           onHostEndMeeting={hostEndMeeting}
           onUpdatePersonalSettings={updatePersonalSettings}

@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Volume2 } from 'lucide-react';
 export default function VideoGrid({
   localStream,
   userName,
+  isHost,
   isAudioMuted,
   isVideoOff,
   isScreenSharing,
@@ -15,7 +16,8 @@ export default function VideoGrid({
   totalPages,
   onPageChange,
   activeSpeakerId,
-  personalSettings
+  personalSettings,
+  onHostMutePeer = () => {}
 }) {
   const [pinnedId, setPinnedId] = useState(null);
 
@@ -26,12 +28,11 @@ export default function VideoGrid({
     setPinnedId((current) => (current === id ? null : id));
   };
 
-  // Slice visible peers for the current page
   const PAGE_SIZE = 6;
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const pagePeers = allPeers.slice(startIndex, startIndex + PAGE_SIZE);
 
-  // If a participant is pinned, render Spotlight layout
+  // Spotlight layout
   if (pinnedId) {
     const isLocalPinned = pinnedId === 'local';
     const pinnedPeer = isLocalPinned ? null : roster[pinnedId];
@@ -70,14 +71,17 @@ export default function VideoGrid({
             <VideoTile
               stream={pinnedStream}
               userName={pinnedPeer.userName}
+              peerId={pinnedPeer.peerId}
               isAudioMuted={pinnedPeer.isAudioMuted}
               isVideoOff={pinnedPeer.isVideoOff}
               isLocal={false}
               isScreenSharing={pinnedPeer.isScreenSharing}
               isHandRaised={pinnedPeer.isHandRaised}
               isSpeaking={activeSpeakerId === pinnedPeer.peerId}
+              isHost={isHost}
               isPinned={true}
               onPin={() => handleTogglePin(pinnedPeer.peerId)}
+              onMutePeer={onHostMutePeer}
             />
           ) : null}
         </div>
@@ -119,14 +123,17 @@ export default function VideoGrid({
                 <VideoTile
                   stream={remoteStreams[peer.peerId]}
                   userName={peer.userName}
+                  peerId={peer.peerId}
                   isAudioMuted={peer.isAudioMuted}
                   isVideoOff={peer.isVideoOff}
                   isLocal={false}
                   isScreenSharing={peer.isScreenSharing}
                   isHandRaised={peer.isHandRaised}
                   isSpeaking={activeSpeakerId === peer.peerId}
+                  isHost={isHost}
                   isPinned={false}
                   onPin={() => handleTogglePin(peer.peerId)}
+                  onMutePeer={onHostMutePeer}
                 />
               </div>
             ))}
@@ -162,7 +169,7 @@ export default function VideoGrid({
         overflow: 'hidden'
       }}
     >
-      {/* Active Speaker Banner (if active speaker is currently talking) */}
+      {/* Active Speaker Banner */}
       {activeSpeakerId && roster[activeSpeakerId] && (
         <div
           style={{
@@ -170,21 +177,22 @@ export default function VideoGrid({
             top: '12px',
             left: '50%',
             transform: 'translateX(-50%)',
-            backgroundColor: 'rgba(26, 115, 232, 0.9)',
-            color: '#ffffff',
-            padding: '4px 16px',
-            borderRadius: '16px',
+            backgroundColor: 'rgba(46, 53, 56, 0.95)',
+            border: '1px solid #9EAB9D',
+            color: '#F4F3EF',
+            padding: '5px 18px',
+            borderRadius: '20px',
             fontSize: '13px',
             fontWeight: '500',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
             zIndex: 15,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(4px)'
+            boxShadow: '0 6px 16px rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(6px)'
           }}
         >
-          <Volume2 size={16} className="animate-pulse" />
+          <Volume2 size={16} color="#9EAB9D" className="animate-pulse" />
           <span>{roster[activeSpeakerId].userName} is speaking</span>
         </div>
       )}
@@ -203,7 +211,7 @@ export default function VideoGrid({
           minHeight: 0
         }}
       >
-        {/* Local Video Tile (Always on Page 1) */}
+        {/* Local Video Tile (Page 1) */}
         {currentPage === 1 && (
           <VideoTile
             stream={localStream}
@@ -221,25 +229,28 @@ export default function VideoGrid({
           />
         )}
 
-        {/* Remote Video Tiles for Current Page */}
+        {/* Remote Video Tiles */}
         {pagePeers.map((peer) => (
           <VideoTile
             key={peer.peerId}
             stream={remoteStreams[peer.peerId]}
             userName={peer.userName}
+            peerId={peer.peerId}
             isAudioMuted={peer.isAudioMuted}
             isVideoOff={peer.isVideoOff}
             isLocal={false}
             isScreenSharing={peer.isScreenSharing}
             isHandRaised={peer.isHandRaised}
             isSpeaking={activeSpeakerId === peer.peerId}
+            isHost={isHost}
             isPinned={false}
             onPin={() => handleTogglePin(peer.peerId)}
+            onMutePeer={onHostMutePeer}
           />
         ))}
       </div>
 
-      {/* Scalable Pagination Controls (when room exceeds 6 participants) */}
+      {/* Scalable Pagination Controls */}
       {totalPages > 1 && (
         <div
           style={{
@@ -248,8 +259,8 @@ export default function VideoGrid({
             justifyContent: 'center',
             gap: '12px',
             padding: '8px 0',
-            backgroundColor: 'rgba(32, 33, 36, 0.85)',
-            borderTop: '1px solid #3c4043',
+            backgroundColor: 'rgba(37, 43, 45, 0.85)',
+            borderTop: '1px solid #3A4245',
             zIndex: 10
           }}
         >
@@ -259,7 +270,7 @@ export default function VideoGrid({
             style={{
               background: 'none',
               border: 'none',
-              color: currentPage <= 1 ? '#5f6368' : '#8ab4f8',
+              color: currentPage <= 1 ? '#566166' : '#9EAB9D',
               cursor: currentPage <= 1 ? 'default' : 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -271,7 +282,7 @@ export default function VideoGrid({
             <ChevronLeft size={18} /> Prev
           </button>
 
-          <span style={{ fontSize: '13px', color: '#bdc1c6', fontWeight: '500' }}>
+          <span style={{ fontSize: '13px', color: '#A6B0A8', fontWeight: '500' }}>
             Page {currentPage} of {totalPages} ({totalCount} in call)
           </span>
 
@@ -281,7 +292,7 @@ export default function VideoGrid({
             style={{
               background: 'none',
               border: 'none',
-              color: currentPage >= totalPages ? '#5f6368' : '#8ab4f8',
+              color: currentPage >= totalPages ? '#566166' : '#9EAB9D',
               cursor: currentPage >= totalPages ? 'default' : 'pointer',
               display: 'flex',
               alignItems: 'center',

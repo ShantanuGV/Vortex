@@ -29,6 +29,7 @@ export default function MeetingRoom({
   personalSettings,
   onUpdateRoomSettings,
   onHostMuteAll,
+  onHostMutePeer,
   onHostKickPeer,
   onHostEndMeeting,
   onUpdatePersonalSettings,
@@ -57,7 +58,8 @@ export default function MeetingRoom({
         height: '100vh',
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: '#202124',
+        backgroundColor: '#252B2D',
+        color: '#F4F3EF',
         overflow: 'hidden',
         position: 'relative'
       }}
@@ -92,6 +94,7 @@ export default function MeetingRoom({
           <VideoGrid
             localStream={localStream}
             userName={userName}
+            isHost={isHost}
             isAudioMuted={isAudioMuted}
             isVideoOff={isVideoOff}
             isScreenSharing={isScreenSharing}
@@ -103,6 +106,7 @@ export default function MeetingRoom({
             onPageChange={setCurrentPage}
             activeSpeakerId={activeSpeakerId}
             personalSettings={personalSettings}
+            onHostMutePeer={onHostMutePeer}
           />
         </div>
 
@@ -126,6 +130,7 @@ export default function MeetingRoom({
             isHandRaised={isHandRaised}
             roster={roster}
             onHostMuteAll={onHostMuteAll}
+            onHostMutePeer={onHostMutePeer}
             onHostKickPeer={onHostKickPeer}
             onClose={() => setActivePanel(null)}
           />

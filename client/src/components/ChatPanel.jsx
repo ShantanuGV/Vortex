@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Send, Lock } from 'lucide-react';
+import { getParticipantColor } from '../utils/colors';
 
 export default function ChatPanel({
   chatMessages,
@@ -30,24 +31,34 @@ export default function ChatPanel({
       style={{
         width: '360px',
         height: '100%',
-        backgroundColor: '#202124',
-        borderLeft: '1px solid #3c4043',
+        backgroundColor: '#252B2D',
+        borderLeft: '1px solid #3A4245',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 20
+        zIndex: 20,
+        fontFamily: "var(--font-ui, 'Inter', sans-serif)"
       }}
     >
       {/* Header */}
       <div
         style={{
-          padding: '16px 20px',
+          padding: '18px 20px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderBottom: '1px solid #3c4043'
+          borderBottom: '1px solid #3A4245'
         }}
       >
-        <h3 style={{ fontSize: '18px', fontWeight: '500', color: '#ffffff' }}>
+        <h3
+          style={{
+            fontSize: '18px',
+            fontWeight: '600',
+            fontFamily: "var(--font-display, 'Playfair Display', serif)",
+            color: '#F4F3EF',
+            letterSpacing: '0.3px',
+            margin: 0
+          }}
+        >
           In-call messages
         </h3>
         <button
@@ -55,12 +66,13 @@ export default function ChatPanel({
           style={{
             background: 'none',
             border: 'none',
-            color: '#bdc1c6',
+            color: '#9EAB9D',
             cursor: 'pointer',
-            padding: '4px',
+            padding: '6px',
             borderRadius: '50%',
             display: 'flex',
-            alignItems: 'center'
+            alignItems: 'center',
+            transition: 'background-color 0.2s'
           }}
         >
           <X size={20} />
@@ -72,12 +84,12 @@ export default function ChatPanel({
         <div
           style={{
             margin: '12px 16px',
-            padding: '12px',
-            backgroundColor: 'rgba(234, 67, 53, 0.15)',
+            padding: '12px 14px',
+            backgroundColor: 'rgba(234, 67, 53, 0.12)',
             border: '1px solid rgba(234, 67, 53, 0.3)',
-            borderRadius: '8px',
+            borderRadius: '10px',
             fontSize: '12px',
-            color: '#f28b82',
+            color: '#F28B82',
             display: 'flex',
             alignItems: 'center',
             gap: '8px'
@@ -90,11 +102,12 @@ export default function ChatPanel({
         <div
           style={{
             margin: '12px 16px',
-            padding: '12px',
-            backgroundColor: '#303134',
-            borderRadius: '8px',
+            padding: '12px 14px',
+            backgroundColor: '#2E3538',
+            border: '1px solid #3A4245',
+            borderRadius: '10px',
             fontSize: '12px',
-            color: '#9aa0a6',
+            color: '#9EAB9D',
             lineHeight: '1.4'
           }}
         >
@@ -110,49 +123,74 @@ export default function ChatPanel({
           padding: '12px 16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '16px'
+          gap: '14px'
         }}
       >
         {chatMessages.length === 0 ? (
           <div
             style={{
               textAlign: 'center',
-              color: '#80868b',
-              marginTop: '40px',
-              fontSize: '14px'
+              color: '#8A9497',
+              marginTop: '48px',
+              fontSize: '13px'
             }}
           >
-            No messages yet. Send a message to start chatting!
+            No messages yet. Send a note to start the conversation!
           </div>
         ) : (
-          chatMessages.map((msg, idx) => (
-            <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                <span
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    color: msg.isHost ? '#f28b82' : '#e8eaed'
-                  }}
-                >
-                  {msg.senderName} {msg.isHost && '(Host)'}
-                </span>
-                <span style={{ fontSize: '11px', color: '#9aa0a6' }}>
-                  {msg.timestamp}
-                </span>
-              </div>
+          chatMessages.map((msg, idx) => {
+            const senderColor = getParticipantColor(msg.senderName || msg.senderId);
+            return (
               <div
+                key={idx}
                 style={{
-                  fontSize: '14px',
-                  color: '#ffffff',
-                  wordBreak: 'break-word',
-                  lineHeight: '1.4'
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                  backgroundColor: '#2E3538',
+                  border: '1px solid #3A4245',
+                  borderRadius: '10px',
+                  padding: '10px 12px'
                 }}
               >
-                {msg.message}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div
+                      style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        backgroundColor: senderColor
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        color: msg.isHost ? '#E5A967' : '#F4F3EF'
+                      }}
+                    >
+                      {msg.senderName} {msg.isHost && '(Host)'}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '11px', color: '#8A9497' }}>
+                    {msg.timestamp}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: '14px',
+                    color: '#F4F3EF',
+                    wordBreak: 'break-word',
+                    lineHeight: '1.4',
+                    marginTop: '2px'
+                  }}
+                >
+                  {msg.message}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -162,10 +200,10 @@ export default function ChatPanel({
         onSubmit={handleSubmit}
         style={{
           padding: '16px',
-          borderTop: '1px solid #3c4043',
+          borderTop: '1px solid #3A4245',
           display: 'flex',
           alignItems: 'center',
-          gap: '8px'
+          gap: '10px'
         }}
       >
         <input
@@ -176,11 +214,11 @@ export default function ChatPanel({
           placeholder={isChatDisabled ? 'Chat is turned off by host' : 'Send a message...'}
           style={{
             flex: 1,
-            backgroundColor: isChatDisabled ? '#282a2d' : '#303134',
-            border: '1px solid #5f6368',
+            backgroundColor: isChatDisabled ? '#252B2D' : '#2E3538',
+            border: '1px solid #3A4245',
             borderRadius: '24px',
             padding: '10px 16px',
-            color: isChatDisabled ? '#80868b' : '#ffffff',
+            color: isChatDisabled ? '#8A9497' : '#F4F3EF',
             fontSize: '14px',
             outline: 'none',
             cursor: isChatDisabled ? 'not-allowed' : 'text'
@@ -190,17 +228,17 @@ export default function ChatPanel({
           type="submit"
           disabled={isChatDisabled || !inputText.trim()}
           style={{
-            backgroundColor: !isChatDisabled && inputText.trim() ? '#1a73e8' : '#3c4043',
-            color: !isChatDisabled && inputText.trim() ? '#ffffff' : '#80868b',
-            border: 'none',
+            backgroundColor: !isChatDisabled && inputText.trim() ? '#9EAB9D' : '#2E3538',
+            color: !isChatDisabled && inputText.trim() ? '#252B2D' : '#8A9497',
+            border: '1px solid #3A4245',
             borderRadius: '50%',
-            width: '40px',
-            height: '40px',
+            width: '42px',
+            height: '42px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: !isChatDisabled && inputText.trim() ? 'pointer' : 'default',
-            transition: 'background-color 0.2s'
+            transition: 'background-color 0.2s, color 0.2s'
           }}
         >
           <Send size={18} />

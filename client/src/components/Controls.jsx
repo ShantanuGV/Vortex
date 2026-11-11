@@ -58,28 +58,29 @@ export default function Controls({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const buttonStyle = (isActive, isAlert = false, isAccent = false, isAmber = false, isDisabled = false) => ({
+  const buttonStyle = (isActive, isAlert = false, isSage = false, isAmber = false, isDisabled = false) => ({
     width: '48px',
     height: '48px',
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    border: 'none',
+    border: isAlert || isAmber || isSage || isActive ? 'none' : '1px solid #3A4245',
     cursor: isDisabled ? 'not-allowed' : 'pointer',
-    opacity: isDisabled ? 0.4 : 1,
+    opacity: isDisabled ? 0.35 : 1,
     backgroundColor: isAlert
-      ? '#ea4335'
+      ? '#EA4335'
       : isAmber
-      ? '#f2994a'
-      : isAccent
-      ? '#1a73e8'
+      ? '#E5A967'
+      : isSage
+      ? '#9EAB9D'
       : isActive
-      ? '#8ab4f8'
-      : '#3c4043',
-    color: isAmber || isActive ? '#202124' : '#ffffff',
+      ? '#9EAB9D'
+      : '#2E3538',
+    color: isAmber || isSage || isActive ? '#252B2D' : '#F4F3EF',
     transition: 'background-color 0.2s, transform 0.1s',
-    outline: 'none'
+    outline: 'none',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.25)'
   });
 
   const micDisabled = !isHost && !roomSettings.allowMic;
@@ -90,25 +91,31 @@ export default function Controls({
     <div
       style={{
         height: '80px',
-        backgroundColor: '#202124',
+        backgroundColor: '#252B2D',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 24px',
-        borderTop: '1px solid #3c4043',
-        zIndex: 10
+        padding: '0 28px',
+        borderTop: '1px solid #3A4245',
+        zIndex: 10,
+        fontFamily: "var(--font-ui, 'Inter', sans-serif)"
       }}
     >
       {/* Left section: Time, Meeting Code, and Host Authority badge */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: '240px' }}>
-        <span style={{ fontSize: '15px', color: '#ffffff', fontWeight: '500' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: '240px' }}>
+        <img
+          src="/vortex-logo.png"
+          alt="Vortex"
+          style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'contain' }}
+        />
+        <span style={{ fontSize: '15px', color: '#F4F3EF', fontWeight: '600' }}>
           {currentTime}
         </span>
-        <span style={{ color: '#5f6368' }}>|</span>
+        <span style={{ color: '#4D575B' }}>|</span>
         <span
           style={{
             fontSize: '14px',
-            color: '#bdc1c6',
+            color: '#C5CCC4',
             letterSpacing: '0.5px',
             fontWeight: '500'
           }}
@@ -121,11 +128,13 @@ export default function Controls({
           style={{
             background: 'none',
             border: 'none',
-            color: copied ? '#81c995' : '#bdc1c6',
+            color: copied ? '#9EAB9D' : '#8A9497',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            padding: '4px'
+            padding: '4px',
+            borderRadius: '4px',
+            transition: 'color 0.2s'
           }}
         >
           {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -136,8 +145,9 @@ export default function Controls({
             title="You are the meeting host"
             style={{
               fontSize: '11px',
-              backgroundColor: 'rgba(242, 153, 74, 0.2)',
-              color: '#f2994a',
+              backgroundColor: 'rgba(158, 171, 157, 0.2)',
+              color: '#9EAB9D',
+              border: '1px solid rgba(158, 171, 157, 0.3)',
               padding: '2px 8px',
               borderRadius: '12px',
               fontWeight: '600',
@@ -225,7 +235,7 @@ export default function Controls({
       </div>
 
       {/* Right section: Panels and Extra Tools */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '240px', justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: '240px', justifyContent: 'flex-end' }}>
         {/* Scale Telemetry HUD */}
         <button
           onClick={onToggleStats}
@@ -233,12 +243,13 @@ export default function Controls({
           style={{
             background: 'none',
             border: 'none',
-            color: showStats ? '#8ab4f8' : '#e8eaed',
+            color: showStats ? '#9EAB9D' : '#C5CCC4',
             cursor: 'pointer',
             padding: '8px',
             borderRadius: '50%',
             display: 'flex',
-            alignItems: 'center'
+            alignItems: 'center',
+            transition: 'color 0.2s'
           }}
         >
           <Activity size={22} />
@@ -251,12 +262,13 @@ export default function Controls({
           style={{
             background: 'none',
             border: 'none',
-            color: activePanel === 'info' ? '#8ab4f8' : '#e8eaed',
+            color: activePanel === 'info' ? '#9EAB9D' : '#C5CCC4',
             cursor: 'pointer',
             padding: '8px',
             borderRadius: '50%',
             display: 'flex',
-            alignItems: 'center'
+            alignItems: 'center',
+            transition: 'color 0.2s'
           }}
         >
           <Info size={22} />
@@ -265,17 +277,18 @@ export default function Controls({
         {/* Participants Panel */}
         <button
           onClick={() => onTogglePanel('people')}
-          title="People"
+          title="Participants"
           style={{
             background: 'none',
             border: 'none',
-            color: activePanel === 'people' ? '#8ab4f8' : '#e8eaed',
+            color: activePanel === 'people' ? '#9EAB9D' : '#C5CCC4',
             cursor: 'pointer',
             padding: '8px',
             borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
-            position: 'relative'
+            position: 'relative',
+            transition: 'color 0.2s'
           }}
         >
           <Users size={22} />
@@ -285,10 +298,10 @@ export default function Controls({
                 position: 'absolute',
                 top: '2px',
                 right: '2px',
-                backgroundColor: '#1a73e8',
-                color: '#ffffff',
+                backgroundColor: '#9EAB9D',
+                color: '#252B2D',
                 fontSize: '11px',
-                fontWeight: '600',
+                fontWeight: '700',
                 borderRadius: '10px',
                 padding: '1px 5px',
                 lineHeight: '14px'
@@ -306,12 +319,13 @@ export default function Controls({
           style={{
             background: 'none',
             border: 'none',
-            color: activePanel === 'chat' ? '#8ab4f8' : '#e8eaed',
+            color: activePanel === 'chat' ? '#9EAB9D' : '#C5CCC4',
             cursor: 'pointer',
             padding: '8px',
             borderRadius: '50%',
             display: 'flex',
-            alignItems: 'center'
+            alignItems: 'center',
+            transition: 'color 0.2s'
           }}
         >
           <MessageSquare size={22} />
@@ -320,17 +334,17 @@ export default function Controls({
         {/* Settings Icon (Meeting & Personal settings) */}
         <button
           onClick={onOpenSettings}
-          title="Meeting & Personal Settings"
+          title="Settings (Admin & Personal)"
           style={{
             background: 'none',
             border: 'none',
-            color: '#e8eaed',
+            color: '#C5CCC4',
             cursor: 'pointer',
             padding: '8px',
             borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
-            transition: 'transform 0.2s'
+            transition: 'transform 0.2s, color 0.2s'
           }}
         >
           <SettingsIcon size={22} />

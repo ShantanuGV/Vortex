@@ -1,24 +1,29 @@
 :root {
-  --bg-dark: #202124;
-  --bg-card: #3c4043;
-  --bg-card-hover: #4a4d51;
-  --text-main: #ffffff;
-  --text-muted: #bdc1c6;
-  --google-blue: #1a73e8;
-  --google-blue-hover: #1557b0;
-  --google-red: #ea4335;
-  --google-red-hover: #d93025;
-  --google-green: #34a853;
-  --control-btn: #3c4043;
-  --control-btn-hover: #474a4d;
-  --border-subtle: #5f6368;
+  /* Color Palette */
+  --bg-dark: #252B2D;          /* Deep Slate */
+  --bg-surface: #2E3538;       /* Elevated Card Surface */
+  --bg-surface-hover: #373F43; /* Hover Card Surface */
+  --text-main: #F4F3EF;        /* Bone White */
+  --text-muted: #A6B0A8;       /* Soft Ash / Muted Text */
+  --accent-sage: #9EAB9D;      /* Soft Sage Green */
+  --accent-sage-hover: #8B998A;/* Darker Sage */
+  --accent-sage-subtle: rgba(158, 171, 157, 0.15);
+  --border-subtle: #3A4245;    /* Deep Slate Divider */
+  --border-card: #454E52;      /* Card Border */
+  --alert-red: #D96B6B;        /* Muted Terracotta Red */
+  --alert-red-hover: #C55656;
+  --amber-gold: #D8A464;       /* Warm Ochre / Hand Raise */
+
+  /* Typography */
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Google Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-ui);
 }
 
 body {
@@ -27,6 +32,7 @@ body {
   height: 100vh;
   overflow: hidden;
   user-select: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 #root {
@@ -36,7 +42,12 @@ body {
   flex-direction: column;
 }
 
-/* Scrollbars */
+h1, h2, h3, .font-serif, .logo-title {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -44,6 +55,24 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #5f6368;
+  background: #3A4245;
   border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4A5458;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.05); }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Smooth transitions */
+button, input, select {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }

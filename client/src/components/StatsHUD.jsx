@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, ShieldCheck, Zap, X, Cpu } from 'lucide-react';
+import { Activity, X } from 'lucide-react';
 
 export default function StatsHUD({ telemetry, activeSpeakerName, onClose }) {
   if (!telemetry) return null;
@@ -11,68 +11,70 @@ export default function StatsHUD({ telemetry, activeSpeakerName, onClose }) {
         top: '20px',
         left: '20px',
         width: '320px',
-        backgroundColor: 'rgba(32, 33, 36, 0.95)',
-        backdropFilter: 'blur(8px)',
-        border: '1px solid #5f6368',
-        borderRadius: '12px',
-        padding: '16px',
-        color: '#ffffff',
+        backgroundColor: 'rgba(37, 43, 45, 0.95)',
+        backdropFilter: 'blur(10px)',
+        border: '1px solid #3A4245',
+        borderRadius: '14px',
+        padding: '16px 18px',
+        color: '#F4F3EF',
         zIndex: 50,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-        fontSize: '13px'
+        boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+        fontSize: '13px',
+        fontFamily: "var(--font-ui, 'Inter', sans-serif)"
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Activity size={18} color="#8ab4f8" />
-          <span style={{ fontWeight: '600', fontSize: '14px', color: '#e8eaed' }}>
+          <Activity size={18} color="#9EAB9D" />
+          <span
+            style={{
+              fontWeight: '600',
+              fontSize: '14px',
+              fontFamily: "var(--font-display, 'Playfair Display', serif)",
+              color: '#F4F3EF'
+            }}
+          >
             Scale & Telemetry HUD
           </span>
         </div>
         <button
           onClick={onClose}
-          style={{ background: 'none', border: 'none', color: '#bdc1c6', cursor: 'pointer', padding: '2px' }}
+          style={{ background: 'none', border: 'none', color: '#8A9497', cursor: 'pointer', padding: '4px' }}
         >
           <X size={16} />
         </button>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '6px' }}>
-          <span style={{ color: '#9aa0a6' }}>Total Participants:</span>
-          <strong style={{ color: '#81c995' }}>{telemetry.totalParticipants} in call</strong>
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>
+          <span style={{ color: '#8A9497' }}>Total Participants:</span>
+          <strong style={{ color: '#9EAB9D' }}>{telemetry.totalParticipants} in room</strong>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '6px' }}>
-          <span style={{ color: '#9aa0a6' }}>Subscribed Streams:</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>
+          <span style={{ color: '#8A9497' }}>Subscribed Streams:</span>
           <strong>{telemetry.activeStreams} active video feeds</strong>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '6px' }}>
-          <span style={{ color: '#9aa0a6' }}>Bandwidth & CPU Saved:</span>
-          <span style={{ color: '#8ab4f8', fontWeight: '700' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>
+          <span style={{ color: '#8A9497' }}>Bandwidth & CPU Saved:</span>
+          <span style={{ color: '#9EAB9D', fontWeight: '700' }}>
             {telemetry.savingsPercent}% saved
           </span>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '6px' }}>
-          <span style={{ color: '#9aa0a6' }}>Grid Virtualization:</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>
+          <span style={{ color: '#8A9497' }}>Grid Virtualization:</span>
           <span>Page {telemetry.page} of {telemetry.totalPages}</span>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '6px' }}>
-          <span style={{ color: '#9aa0a6' }}>Active Speaker:</span>
-          <span style={{ color: activeSpeakerName ? '#fbbc04' : '#bdc1c6' }}>
-            {activeSpeakerName || 'None'}
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', color: '#81c995', fontSize: '11px' }}>
-          <ShieldCheck size={14} />
-          <span>Zero-Transcoding Selective Forwarding Active</span>
-        </div>
+        {activeSpeakerName && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '2px' }}>
+            <span style={{ color: '#8A9497' }}>Active Speaker:</span>
+            <span style={{ color: '#E5A967', fontWeight: '600' }}>{activeSpeakerName}</span>
+          </div>
+        )}
       </div>
     </div>
   );
 }
-

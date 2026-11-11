@@ -77,12 +77,13 @@ export default function SettingsModal({
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(5px)',
+        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        backdropFilter: 'blur(8px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 100
+        zIndex: 100,
+        fontFamily: "var(--font-ui, 'Inter', sans-serif)"
       }}
       onClick={onClose}
     >
@@ -90,10 +91,10 @@ export default function SettingsModal({
         style={{
           width: '780px',
           height: '560px',
-          backgroundColor: '#202124',
-          borderRadius: '16px',
-          border: '1px solid #3c4043',
-          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.85)',
+          backgroundColor: '#252B2D',
+          borderRadius: '20px',
+          border: '1px solid #3A4245',
+          boxShadow: '0 20px 48px rgba(0, 0, 0, 0.65)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden'
@@ -103,18 +104,31 @@ export default function SettingsModal({
         {/* Header */}
         <div
           style={{
-            height: '60px',
-            padding: '0 24px',
+            height: '64px',
+            padding: '0 28px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: '1px solid #3c4043'
+            borderBottom: '1px solid #3A4245'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <GearIcon size={20} color="#8ab4f8" />
-            <h2 style={{ fontSize: '18px', fontWeight: '500', color: '#ffffff' }}>
-              Google Meet Settings
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <img
+              src="/vortex-logo.png"
+              alt="Vortex"
+              style={{ width: '28px', height: '28px', borderRadius: '50%' }}
+            />
+            <h2
+              style={{
+                fontSize: '20px',
+                fontWeight: '600',
+                fontFamily: "var(--font-display, 'Playfair Display', serif)",
+                color: '#F4F3EF',
+                letterSpacing: '0.4px',
+                margin: 0
+              }}
+            >
+              VORTEX Settings
             </h2>
           </div>
           <button
@@ -122,10 +136,13 @@ export default function SettingsModal({
             style={{
               background: 'none',
               border: 'none',
-              color: '#bdc1c6',
+              color: '#9EAB9D',
               cursor: 'pointer',
               padding: '6px',
-              borderRadius: '50%'
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'background-color 0.2s'
             }}
           >
             <X size={20} />
@@ -138,8 +155,8 @@ export default function SettingsModal({
           <div
             style={{
               width: '210px',
-              borderRight: '1px solid #3c4043',
-              padding: '12px 0',
+              borderRight: '1px solid #3A4245',
+              padding: '16px 0',
               display: 'flex',
               flexDirection: 'column',
               gap: '4px'
@@ -153,13 +170,14 @@ export default function SettingsModal({
                 gap: '12px',
                 padding: '12px 20px',
                 border: 'none',
-                background: activeTab === 'audio' ? 'rgba(138, 180, 248, 0.15)' : 'none',
-                color: activeTab === 'audio' ? '#8ab4f8' : '#e8eaed',
+                background: activeTab === 'audio' ? 'rgba(158, 171, 157, 0.15)' : 'none',
+                color: activeTab === 'audio' ? '#9EAB9D' : '#F4F3EF',
                 fontSize: '14px',
-                fontWeight: '500',
+                fontWeight: '600',
                 cursor: 'pointer',
                 textAlign: 'left',
-                borderLeft: activeTab === 'audio' ? '3px solid #8ab4f8' : '3px solid transparent'
+                borderLeft: activeTab === 'audio' ? '3px solid #9EAB9D' : '3px solid transparent',
+                transition: 'background-color 0.2s, color 0.2s'
               }}
             >
               <Mic size={18} /> Audio
@@ -173,13 +191,14 @@ export default function SettingsModal({
                 gap: '12px',
                 padding: '12px 20px',
                 border: 'none',
-                background: activeTab === 'video' ? 'rgba(138, 180, 248, 0.15)' : 'none',
-                color: activeTab === 'video' ? '#8ab4f8' : '#e8eaed',
+                background: activeTab === 'video' ? 'rgba(158, 171, 157, 0.15)' : 'none',
+                color: activeTab === 'video' ? '#9EAB9D' : '#F4F3EF',
                 fontSize: '14px',
-                fontWeight: '500',
+                fontWeight: '600',
                 cursor: 'pointer',
                 textAlign: 'left',
-                borderLeft: activeTab === 'video' ? '3px solid #8ab4f8' : '3px solid transparent'
+                borderLeft: activeTab === 'video' ? '3px solid #9EAB9D' : '3px solid transparent',
+                transition: 'background-color 0.2s, color 0.2s'
               }}
             >
               <Video size={18} /> Video & FX
@@ -193,19 +212,20 @@ export default function SettingsModal({
                 gap: '12px',
                 padding: '12px 20px',
                 border: 'none',
-                background: activeTab === 'general' ? 'rgba(138, 180, 248, 0.15)' : 'none',
-                color: activeTab === 'general' ? '#8ab4f8' : '#e8eaed',
+                background: activeTab === 'general' ? 'rgba(158, 171, 157, 0.15)' : 'none',
+                color: activeTab === 'general' ? '#9EAB9D' : '#F4F3EF',
                 fontSize: '14px',
-                fontWeight: '500',
+                fontWeight: '600',
                 cursor: 'pointer',
                 textAlign: 'left',
-                borderLeft: activeTab === 'general' ? '3px solid #8ab4f8' : '3px solid transparent'
+                borderLeft: activeTab === 'general' ? '3px solid #9EAB9D' : '3px solid transparent',
+                transition: 'background-color 0.2s, color 0.2s'
               }}
             >
               <Sliders size={18} /> General
             </button>
 
-            <div style={{ margin: '8px 16px', borderTop: '1px solid #3c4043' }} />
+            <div style={{ margin: '8px 16px', borderTop: '1px solid #3A4245' }} />
 
             {/* Host Controls Tab */}
             <button
@@ -217,12 +237,13 @@ export default function SettingsModal({
                 padding: '12px 20px',
                 border: 'none',
                 background: activeTab === 'host' ? 'rgba(234, 67, 53, 0.15)' : 'none',
-                color: activeTab === 'host' ? '#ea4335' : isHost ? '#f28b82' : '#9aa0a6',
+                color: activeTab === 'host' ? '#EA4335' : isHost ? '#F28B82' : '#8A9497',
                 fontSize: '14px',
-                fontWeight: '500',
+                fontWeight: '600',
                 cursor: 'pointer',
                 textAlign: 'left',
-                borderLeft: activeTab === 'host' ? '3px solid #ea4335' : '3px solid transparent'
+                borderLeft: activeTab === 'host' ? '3px solid #EA4335' : '3px solid transparent',
+                transition: 'background-color 0.2s, color 0.2s'
               }}
             >
               <ShieldAlert size={18} />
@@ -235,15 +256,15 @@ export default function SettingsModal({
           <div
             style={{
               flex: 1,
-              padding: '24px 32px',
+              padding: '28px 36px',
               overflowY: 'auto'
             }}
           >
             {/* --- AUDIO TAB --- */}
             {activeTab === 'audio' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: '#9aa0a6', marginBottom: '8px', fontWeight: '500' }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#9EAB9D', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.8px' }}>
                     MICROPHONE
                   </label>
                   <select
@@ -251,11 +272,11 @@ export default function SettingsModal({
                     onChange={(e) => onUpdatePersonalSettings({ audioInputDeviceId: e.target.value })}
                     style={{
                       width: '100%',
-                      backgroundColor: '#303134',
-                      border: '1px solid #5f6368',
-                      color: '#ffffff',
-                      borderRadius: '8px',
-                      padding: '10px 14px',
+                      backgroundColor: '#2E3538',
+                      border: '1px solid #3A4245',
+                      color: '#F4F3EF',
+                      borderRadius: '10px',
+                      padding: '12px 14px',
                       fontSize: '14px',
                       outline: 'none'
                     }}
@@ -272,14 +293,14 @@ export default function SettingsModal({
                   </select>
 
                   {/* Live Microphone Meter Bar */}
-                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '11px', color: '#9aa0a6' }}>Mic Level:</span>
-                    <div style={{ flex: 1, height: '6px', backgroundColor: '#3c4043', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '11px', color: '#9EAB9D' }}>Mic Level:</span>
+                    <div style={{ flex: 1, height: '6px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '3px', overflow: 'hidden' }}>
                       <div
                         style={{
                           height: '100%',
                           width: `${Math.min(100, Math.round(micVolume * 100))}%`,
-                          backgroundColor: '#34a853',
+                          backgroundColor: '#9EAB9D',
                           transition: 'width 0.1s ease-out'
                         }}
                       />
@@ -289,16 +310,16 @@ export default function SettingsModal({
 
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <label style={{ fontSize: '12px', color: '#9aa0a6', fontWeight: '500' }}>
+                    <label style={{ fontSize: '11px', color: '#9EAB9D', fontWeight: '600', letterSpacing: '0.8px' }}>
                       SPEAKERS
                     </label>
                     <button
                       type="button"
                       onClick={handleTestSpeaker}
                       style={{
-                        backgroundColor: '#303134',
-                        border: '1px solid #5f6368',
-                        color: '#8ab4f8',
+                        backgroundColor: '#2E3538',
+                        border: '1px solid #3A4245',
+                        color: '#9EAB9D',
                         borderRadius: '16px',
                         padding: '4px 12px',
                         fontSize: '12px',
@@ -316,11 +337,11 @@ export default function SettingsModal({
                     onChange={(e) => onUpdatePersonalSettings({ audioOutputDeviceId: e.target.value })}
                     style={{
                       width: '100%',
-                      backgroundColor: '#303134',
-                      border: '1px solid #5f6368',
-                      color: '#ffffff',
-                      borderRadius: '8px',
-                      padding: '10px 14px',
+                      backgroundColor: '#2E3538',
+                      border: '1px solid #3A4245',
+                      color: '#F4F3EF',
+                      borderRadius: '10px',
+                      padding: '12px 14px',
                       fontSize: '14px',
                       outline: 'none'
                     }}
@@ -338,30 +359,30 @@ export default function SettingsModal({
                 </div>
 
                 {/* Audio DSP Processing Controls */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#303134', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
                     <div>
-                      <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Noise cancellation</div>
-                      <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Filters out background noise and typing sounds</div>
+                      <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Noise cancellation</div>
+                      <div style={{ fontSize: '12px', color: '#8A9497' }}>Filters out background noise and keystrokes</div>
                     </div>
                     <input
                       type="checkbox"
                       checked={personalSettings.noiseCancellation ?? true}
                       onChange={(e) => onUpdatePersonalSettings({ noiseCancellation: e.target.checked })}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                     />
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#303134', borderRadius: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
                     <div>
-                      <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Echo cancellation</div>
-                      <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Prevents feedback loops from laptop speakers</div>
+                      <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Echo cancellation</div>
+                      <div style={{ fontSize: '12px', color: '#8A9497' }}>Prevents feedback loops from room speakers</div>
                     </div>
                     <input
                       type="checkbox"
                       checked={personalSettings.echoCancellation ?? true}
                       onChange={(e) => onUpdatePersonalSettings({ echoCancellation: e.target.checked })}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                     />
                   </div>
                 </div>
@@ -370,9 +391,9 @@ export default function SettingsModal({
 
             {/* --- VIDEO TAB --- */}
             {activeTab === 'video' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: '#9aa0a6', marginBottom: '8px', fontWeight: '500' }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#9EAB9D', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.8px' }}>
                     CAMERA
                   </label>
                   <select
@@ -380,11 +401,11 @@ export default function SettingsModal({
                     onChange={(e) => onUpdatePersonalSettings({ videoInputDeviceId: e.target.value })}
                     style={{
                       width: '100%',
-                      backgroundColor: '#303134',
-                      border: '1px solid #5f6368',
-                      color: '#ffffff',
-                      borderRadius: '8px',
-                      padding: '10px 14px',
+                      backgroundColor: '#2E3538',
+                      border: '1px solid #3A4245',
+                      color: '#F4F3EF',
+                      borderRadius: '10px',
+                      padding: '12px 14px',
                       fontSize: '14px',
                       outline: 'none'
                     }}
@@ -403,13 +424,13 @@ export default function SettingsModal({
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: '#9aa0a6', marginBottom: '6px', fontWeight: '500' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#9EAB9D', marginBottom: '6px', fontWeight: '600', letterSpacing: '0.8px' }}>
                       SEND RESOLUTION
                     </label>
                     <select
                       value={personalSettings.sendResolution || '720p'}
                       onChange={(e) => onUpdatePersonalSettings({ sendResolution: e.target.value })}
-                      style={{ width: '100%', backgroundColor: '#303134', border: '1px solid #5f6368', color: '#ffffff', borderRadius: '8px', padding: '10px', fontSize: '13px', outline: 'none' }}
+                      style={{ width: '100%', backgroundColor: '#2E3538', border: '1px solid #3A4245', color: '#F4F3EF', borderRadius: '10px', padding: '10px', fontSize: '13px', outline: 'none' }}
                     >
                       <option value="720p">High definition (720p)</option>
                       <option value="360p">Standard definition (360p)</option>
@@ -418,13 +439,13 @@ export default function SettingsModal({
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: '#9aa0a6', marginBottom: '6px', fontWeight: '500' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#9EAB9D', marginBottom: '6px', fontWeight: '600', letterSpacing: '0.8px' }}>
                       RECEIVE RESOLUTION
                     </label>
                     <select
                       value={personalSettings.receiveResolution || 'auto'}
                       onChange={(e) => onUpdatePersonalSettings({ receiveResolution: e.target.value })}
-                      style={{ width: '100%', backgroundColor: '#303134', border: '1px solid #5f6368', color: '#ffffff', borderRadius: '8px', padding: '10px', fontSize: '13px', outline: 'none' }}
+                      style={{ width: '100%', backgroundColor: '#2E3538', border: '1px solid #3A4245', color: '#F4F3EF', borderRadius: '10px', padding: '10px', fontSize: '13px', outline: 'none' }}
                     >
                       <option value="auto">Auto (SFU Selective)</option>
                       <option value="720p">High definition (720p)</option>
@@ -436,34 +457,34 @@ export default function SettingsModal({
 
                 {/* Video Effects & Filters */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#303134', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Sun size={18} color="#fbbc04" />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Sun size={18} color="#E5A967" />
                       <div>
-                        <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Adjust video lighting</div>
-                        <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Brightens your video automatically in dark rooms</div>
+                        <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Adjust video lighting</div>
+                        <div style={{ fontSize: '12px', color: '#8A9497' }}>Brightens your video automatically in dark rooms</div>
                       </div>
                     </div>
                     <input
                       type="checkbox"
                       checked={personalSettings.lightingBoost ?? false}
                       onChange={(e) => onUpdatePersonalSettings({ lightingBoost: e.target.checked })}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                     />
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#303134', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Layers size={18} color="#8ab4f8" />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Layers size={18} color="#9EAB9D" />
                       <div>
-                        <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Background blur effect</div>
-                        <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Blurs your surroundings for privacy</div>
+                        <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Background blur effect</div>
+                        <div style={{ fontSize: '12px', color: '#8A9497' }}>Blurs your surroundings for privacy</div>
                       </div>
                     </div>
                     <select
                       value={personalSettings.backgroundEffect || 'none'}
                       onChange={(e) => onUpdatePersonalSettings({ backgroundEffect: e.target.value })}
-                      style={{ backgroundColor: '#202124', border: '1px solid #5f6368', color: '#ffffff', borderRadius: '6px', padding: '6px 10px', fontSize: '13px', outline: 'none' }}
+                      style={{ backgroundColor: '#252B2D', border: '1px solid #3A4245', color: '#F4F3EF', borderRadius: '8px', padding: '6px 10px', fontSize: '13px', outline: 'none' }}
                     >
                       <option value="none">No blur</option>
                       <option value="slight-blur">Slight blur</option>
@@ -477,42 +498,42 @@ export default function SettingsModal({
             {/* --- GENERAL TAB --- */}
             {activeTab === 'general' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', backgroundColor: '#303134', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
                   <div>
-                    <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Mirror my video</div>
-                    <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Flips your self-view like a mirror</div>
+                    <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Mirror my video</div>
+                    <div style={{ fontSize: '12px', color: '#8A9497' }}>Flips your self-view like a mirror</div>
                   </div>
                   <input
                     type="checkbox"
                     checked={personalSettings.mirrorVideo ?? true}
                     onChange={(e) => onUpdatePersonalSettings({ mirrorVideo: e.target.checked })}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                   />
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', backgroundColor: '#303134', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
                   <div>
-                    <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Always join with microphone muted</div>
-                    <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Mutes audio automatically when entering a room</div>
+                    <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Always join with microphone muted</div>
+                    <div style={{ fontSize: '12px', color: '#8A9497' }}>Mutes audio automatically when entering a room</div>
                   </div>
                   <input
                     type="checkbox"
                     checked={personalSettings.defaultAudioMuted ?? false}
                     onChange={(e) => onUpdatePersonalSettings({ defaultAudioMuted: e.target.checked })}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                   />
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', backgroundColor: '#303134', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
                   <div>
-                    <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Always join with camera off</div>
-                    <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Keeps your video off automatically when entering</div>
+                    <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Always join with camera off</div>
+                    <div style={{ fontSize: '12px', color: '#8A9497' }}>Keeps your video off automatically when entering</div>
                   </div>
                   <input
                     type="checkbox"
                     checked={personalSettings.defaultVideoOff ?? false}
                     onChange={(e) => onUpdatePersonalSettings({ defaultVideoOff: e.target.checked })}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                   />
                 </div>
               </div>
@@ -524,12 +545,12 @@ export default function SettingsModal({
                 {!isHost ? (
                   <div
                     style={{
-                      padding: '36px 16px',
+                      padding: '40px 16px',
                       textAlign: 'center',
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: '12px'
+                      gap: '14px'
                     }}
                   >
                     <div
@@ -537,19 +558,20 @@ export default function SettingsModal({
                         width: '56px',
                         height: '56px',
                         borderRadius: '50%',
-                        backgroundColor: '#303134',
+                        backgroundColor: '#2E3538',
+                        border: '1px solid #3A4245',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: '#9aa0a6'
+                        color: '#8A9497'
                       }}
                     >
-                      <Lock size={28} />
+                      <Lock size={26} />
                     </div>
-                    <h3 style={{ fontSize: '16px', color: '#ffffff', fontWeight: '500' }}>
+                    <h3 style={{ fontSize: '16px', color: '#F4F3EF', fontWeight: '600' }}>
                       Host controls are restricted
                     </h3>
-                    <p style={{ fontSize: '13px', color: '#9aa0a6', maxWidth: '380px', lineHeight: '1.4' }}>
+                    <p style={{ fontSize: '13px', color: '#8A9497', maxWidth: '380px', lineHeight: '1.4' }}>
                       Only the meeting host or designated administrators have authority to modify meeting-wide policies and controls.
                     </p>
                   </div>
@@ -558,97 +580,97 @@ export default function SettingsModal({
                     <div
                       style={{
                         padding: '12px 16px',
-                        backgroundColor: 'rgba(234, 67, 53, 0.1)',
-                        border: '1px solid rgba(234, 67, 53, 0.3)',
-                        borderRadius: '8px',
+                        backgroundColor: 'rgba(158, 171, 157, 0.12)',
+                        border: '1px solid rgba(158, 171, 157, 0.3)',
+                        borderRadius: '10px',
                         fontSize: '13px',
-                        color: '#f28b82'
+                        color: '#F4F3EF'
                       }}
                     >
                       👑 <strong>Host Authority Active:</strong> Settings you change here apply immediately to all participants in this meeting.
                     </div>
 
-                    <div style={{ fontSize: '12px', color: '#9aa0a6', fontWeight: '600', letterSpacing: '0.8px' }}>
+                    <div style={{ fontSize: '11px', color: '#9EAB9D', fontWeight: '600', letterSpacing: '0.8px' }}>
                       MEETING POLICIES
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '10px' }}>
                       <div>
-                        <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Share their screen</div>
-                        <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Let participants present their screen</div>
+                        <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Share their screen</div>
+                        <div style={{ fontSize: '12px', color: '#8A9497' }}>Let participants present their screen</div>
                       </div>
                       <input
                         type="checkbox"
                         checked={roomSettings.allowScreenShare ?? true}
                         onChange={() => handleHostToggle('allowScreenShare')}
-                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                       />
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '10px' }}>
                       <div>
-                        <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Send chat messages</div>
-                        <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Let participants send in-call messages</div>
+                        <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Send chat messages</div>
+                        <div style={{ fontSize: '12px', color: '#8A9497' }}>Let participants send in-call messages</div>
                       </div>
                       <input
                         type="checkbox"
                         checked={roomSettings.allowChat ?? true}
                         onChange={() => handleHostToggle('allowChat')}
-                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                       />
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '10px' }}>
                       <div>
-                        <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Turn on their microphone</div>
-                        <div style={{ fontSize: '12px', color: '#9aa0a6' }}>When off, only hosts can unmute</div>
+                        <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Turn on their microphone</div>
+                        <div style={{ fontSize: '12px', color: '#8A9497' }}>When off, only hosts can unmute</div>
                       </div>
                       <input
                         type="checkbox"
                         checked={roomSettings.allowMic ?? true}
                         onChange={() => handleHostToggle('allowMic')}
-                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                       />
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '10px' }}>
                       <div>
-                        <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Turn on their video</div>
-                        <div style={{ fontSize: '12px', color: '#9aa0a6' }}>When off, participants cannot turn on camera</div>
+                        <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Turn on their video</div>
+                        <div style={{ fontSize: '12px', color: '#8A9497' }}>When off, participants cannot turn on camera</div>
                       </div>
                       <input
                         type="checkbox"
                         checked={roomSettings.allowCamera ?? true}
                         onChange={() => handleHostToggle('allowCamera')}
-                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#1a73e8' }}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
                       />
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3c4043', paddingBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '10px' }}>
                       <div>
-                        <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: '500' }}>Lock meeting</div>
-                        <div style={{ fontSize: '12px', color: '#9aa0a6' }}>Prevent any new participants from joining</div>
+                        <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Lock meeting</div>
+                        <div style={{ fontSize: '12px', color: '#8A9497' }}>Prevent any new participants from joining</div>
                       </div>
                       <input
                         type="checkbox"
                         checked={roomSettings.isLocked ?? false}
                         onChange={() => handleHostToggle('isLocked')}
-                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#ea4335' }}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#EA4335' }}
                       />
                     </div>
 
                     {/* Host Actions */}
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
                       <button
                         type="button"
                         onClick={onHostMuteAll}
                         style={{
                           flex: 1,
-                          backgroundColor: '#303134',
-                          border: '1px solid #ea4335',
-                          color: '#f28b82',
-                          borderRadius: '8px',
-                          padding: '10px 14px',
+                          backgroundColor: '#2E3538',
+                          border: '1px solid #EA4335',
+                          color: '#F28B82',
+                          borderRadius: '10px',
+                          padding: '12px 14px',
                           fontSize: '13px',
                           fontWeight: '600',
                           cursor: 'pointer',
@@ -670,11 +692,11 @@ export default function SettingsModal({
                         }}
                         style={{
                           flex: 1,
-                          backgroundColor: '#ea4335',
+                          backgroundColor: '#EA4335',
                           border: 'none',
-                          color: '#ffffff',
-                          borderRadius: '8px',
-                          padding: '10px 14px',
+                          color: '#FFFFFF',
+                          borderRadius: '10px',
+                          padding: '12px 14px',
                           fontSize: '13px',
                           fontWeight: '600',
                           cursor: 'pointer',

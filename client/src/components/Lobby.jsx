@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Video, VideoOff, Video as MeetIcon, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, Sparkles, RefreshCw } from 'lucide-react';
+import { getParticipantColor } from '../utils/colors';
 
 export default function Lobby({ onJoinRoom }) {
   const [userName, setUserName] = useState('');
@@ -10,7 +11,7 @@ export default function Lobby({ onJoinRoom }) {
 
   const videoRef = useRef(null);
 
-  // Generate Google Meet formatted room code (e.g. abc-defg-hij)
+  // Generate meeting code (e.g. abc-defg-hij)
   const generateRoomCode = () => {
     const letters = 'abcdefghijklmnopqrstuvwxyz';
     const randPart = (len) =>
@@ -93,62 +94,62 @@ export default function Lobby({ onJoinRoom }) {
     });
   };
 
+  const avatarColor = getParticipantColor(userName || 'Vortex');
+
   return (
     <div
       style={{
         width: '100vw',
         height: '100vh',
-        backgroundColor: '#202124',
+        backgroundColor: '#252B2D',
+        color: '#F4F3EF',
         display: 'flex',
-        flexDirection: 'column'
+        flexDirection: 'column',
+        fontFamily: "var(--font-ui, 'Inter', sans-serif)"
       }}
     >
       {/* Top Bar */}
       <div
         style={{
-          height: '64px',
+          height: '72px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '0 32px'
+          padding: '0 36px',
+          borderBottom: '1px solid #3A4245'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <img
+            src="/vortex-logo.png"
+            alt="VORTEX Logo"
             style={{
               width: '40px',
               height: '40px',
-              borderRadius: '8px',
-              backgroundColor: '#1a73e8',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#ffffff'
+              borderRadius: '50%',
+              objectFit: 'contain'
             }}
-          >
-            <MeetIcon size={22} />
+          />
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span
+              style={{
+                fontSize: '22px',
+                fontWeight: '700',
+                fontFamily: "var(--font-display, 'Playfair Display', serif)",
+                letterSpacing: '1.5px',
+                color: '#F4F3EF'
+              }}
+            >
+              VORTEX
+            </span>
+            <span style={{ fontSize: '11px', color: '#9EAB9D', letterSpacing: '0.5px' }}>
+              VIDEO COLLABORATION
+            </span>
           </div>
-          <span style={{ fontSize: '20px', fontWeight: '500', color: '#e8eaed' }}>
-            Google Meet <span style={{ fontSize: '13px', color: '#8ab4f8' }}>[REA Lab]</span>
-          </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span
-            style={{
-              fontSize: '12px',
-              backgroundColor: 'rgba(138, 180, 248, 0.15)',
-              color: '#8ab4f8',
-              padding: '6px 12px',
-              borderRadius: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontWeight: '500'
-            }}
-          >
-            <Sparkles size={14} /> WebRTC Peer Engine
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+
         </div>
       </div>
 
@@ -159,15 +160,15 @@ export default function Lobby({ onJoinRoom }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '24px'
+          padding: '32px'
         }}
       >
         <div
           style={{
             display: 'flex',
-            maxWidth: '1020px',
+            maxWidth: '1060px',
             width: '100%',
-            gap: '48px',
+            gap: '56px',
             alignItems: 'center',
             flexWrap: 'wrap',
             justifyContent: 'center'
@@ -177,12 +178,13 @@ export default function Lobby({ onJoinRoom }) {
           <div
             style={{
               position: 'relative',
-              width: '540px',
-              height: '360px',
-              borderRadius: '16px',
-              backgroundColor: '#3c4043',
+              width: '560px',
+              height: '380px',
+              borderRadius: '20px',
+              backgroundColor: '#2E3538',
+              border: '1px solid #3A4245',
               overflow: 'hidden',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.4)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
@@ -208,26 +210,29 @@ export default function Lobby({ onJoinRoom }) {
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
-                  gap: '12px'
+                  gap: '14px'
                 }}
               >
                 <div
                   style={{
-                    width: '96px',
-                    height: '96px',
+                    width: '100px',
+                    height: '100px',
                     borderRadius: '50%',
-                    backgroundColor: '#1a73e8',
-                    color: '#ffffff',
+                    backgroundColor: avatarColor,
+                    color: '#252B2D',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '36px',
-                    fontWeight: '600'
+                    fontSize: '40px',
+                    fontWeight: '700',
+                    boxShadow: '0 6px 18px rgba(0,0,0,0.3)'
                   }}
                 >
-                  {userName ? userName.charAt(0).toUpperCase() : 'G'}
+                  {userName ? userName.charAt(0).toUpperCase() : 'V'}
                 </div>
-                <span style={{ color: '#bdc1c6', fontSize: '14px' }}>Camera is off</span>
+                <span style={{ color: '#9EAB9D', fontSize: '14px', fontWeight: '500' }}>
+                  Camera is turned off
+                </span>
               </div>
             )}
 
@@ -235,7 +240,7 @@ export default function Lobby({ onJoinRoom }) {
             <div
               style={{
                 position: 'absolute',
-                bottom: '16px',
+                bottom: '20px',
                 display: 'flex',
                 gap: '16px',
                 zIndex: 5
@@ -246,21 +251,21 @@ export default function Lobby({ onJoinRoom }) {
                 onClick={handleToggleAudio}
                 title={isAudioMuted ? 'Turn on microphone' : 'Turn off microphone'}
                 style={{
-                  width: '48px',
-                  height: '48px',
+                  width: '50px',
+                  height: '50px',
                   borderRadius: '50%',
-                  border: 'none',
-                  backgroundColor: isAudioMuted ? '#ea4335' : '#3c4043',
-                  color: '#ffffff',
+                  border: isAudioMuted ? 'none' : '1px solid #3A4245',
+                  backgroundColor: isAudioMuted ? '#EA4335' : '#252B2D',
+                  color: isAudioMuted ? '#FFFFFF' : '#F4F3EF',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                  transition: 'background-color 0.2s'
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+                  transition: 'background-color 0.2s, transform 0.1s'
                 }}
               >
-                {isAudioMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                {isAudioMuted ? <MicOff size={22} /> : <Mic size={22} />}
               </button>
 
               <button
@@ -268,72 +273,107 @@ export default function Lobby({ onJoinRoom }) {
                 onClick={handleToggleVideo}
                 title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
                 style={{
-                  width: '48px',
-                  height: '48px',
+                  width: '50px',
+                  height: '50px',
                   borderRadius: '50%',
-                  border: 'none',
-                  backgroundColor: isVideoOff ? '#ea4335' : '#3c4043',
-                  color: '#ffffff',
+                  border: isVideoOff ? 'none' : '1px solid #3A4245',
+                  backgroundColor: isVideoOff ? '#EA4335' : '#252B2D',
+                  color: isVideoOff ? '#FFFFFF' : '#F4F3EF',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                  transition: 'background-color 0.2s'
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+                  transition: 'background-color 0.2s, transform 0.1s'
                 }}
               >
-                {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
+                {isVideoOff ? <VideoOff size={22} /> : <Video size={22} />}
               </button>
             </div>
           </div>
 
-          {/* Right Join Form */}
+          {/* Right Join Form Card */}
           <div
             style={{
-              width: '360px',
+              width: '380px',
+              backgroundColor: '#2E3538',
+              border: '1px solid #3A4245',
+              borderRadius: '20px',
+              padding: '32px',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
               display: 'flex',
               flexDirection: 'column',
               gap: '24px'
             }}
           >
             <div>
-              <h1 style={{ fontSize: '28px', fontWeight: '400', color: '#ffffff', marginBottom: '8px' }}>
-                Ready to join?
+              <h1
+                style={{
+                  fontSize: '30px',
+                  fontWeight: '600',
+                  fontFamily: "var(--font-display, 'Playfair Display', serif)",
+                  color: '#F4F3EF',
+                  marginBottom: '8px',
+                  letterSpacing: '0.4px'
+                }}
+              >
+                Ready to enter?
               </h1>
-              <p style={{ fontSize: '14px', color: '#bdc1c6' }}>
-                Connect seamlessly with WebRTC audio & video.
+              <p style={{ fontSize: '14px', color: '#9EAB9D', lineHeight: '1.4' }}>
+                Join the seamless peer-to-peer workspace with high-fidelity audio & video.
               </p>
             </div>
 
-            <form onSubmit={handleJoin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={handleJoin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#9aa0a6', marginBottom: '6px' }}>
-                  YOUR DISPLAY NAME
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '11px',
+                    color: '#9EAB9D',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    fontWeight: '600',
+                    marginBottom: '8px'
+                  }}
+                >
+                  Your Display Name
                 </label>
                 <input
                   type="text"
                   required
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
-                  placeholder="Enter your name"
+                  placeholder="e.g. Shantanu V"
                   style={{
                     width: '100%',
-                    backgroundColor: '#303134',
-                    border: '1px solid #5f6368',
-                    borderRadius: '8px',
+                    backgroundColor: '#252B2D',
+                    border: '1px solid #3A4245',
+                    borderRadius: '10px',
                     padding: '12px 16px',
-                    color: '#ffffff',
+                    color: '#F4F3EF',
                     fontSize: '15px',
-                    outline: 'none'
+                    outline: 'none',
+                    transition: 'border-color 0.2s'
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#9aa0a6', marginBottom: '6px' }}>
-                  MEETING CODE
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '11px',
+                    color: '#9EAB9D',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    fontWeight: '600',
+                    marginBottom: '8px'
+                  }}
+                >
+                  Meeting Code
                 </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
                   <input
                     type="text"
                     required
@@ -342,11 +382,11 @@ export default function Lobby({ onJoinRoom }) {
                     placeholder="abc-defg-hij"
                     style={{
                       flex: 1,
-                      backgroundColor: '#303134',
-                      border: '1px solid #5f6368',
-                      borderRadius: '8px',
+                      backgroundColor: '#252B2D',
+                      border: '1px solid #3A4245',
+                      borderRadius: '10px',
                       padding: '12px 16px',
-                      color: '#ffffff',
+                      color: '#F4F3EF',
                       fontSize: '15px',
                       outline: 'none',
                       letterSpacing: '0.5px'
@@ -355,19 +395,23 @@ export default function Lobby({ onJoinRoom }) {
                   <button
                     type="button"
                     onClick={() => setRoomId(generateRoomCode())}
-                    title="Generate new code"
+                    title="Generate new meeting code"
                     style={{
-                      backgroundColor: '#3c4043',
-                      border: 'none',
-                      borderRadius: '8px',
-                      color: '#8ab4f8',
-                      padding: '0 12px',
+                      backgroundColor: '#252B2D',
+                      border: '1px solid #3A4245',
+                      borderRadius: '10px',
+                      color: '#9EAB9D',
+                      padding: '0 14px',
                       fontSize: '13px',
                       cursor: 'pointer',
-                      fontWeight: '500'
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'background-color 0.2s'
                     }}
                   >
-                    New
+                    <RefreshCw size={14} /> New
                   </button>
                 </div>
               </div>
@@ -375,20 +419,21 @@ export default function Lobby({ onJoinRoom }) {
               <button
                 type="submit"
                 style={{
-                  marginTop: '8px',
-                  backgroundColor: '#1a73e8',
-                  color: '#ffffff',
+                  marginTop: '10px',
+                  backgroundColor: '#9EAB9D',
+                  color: '#252B2D',
                   border: 'none',
-                  borderRadius: '24px',
+                  borderRadius: '28px',
                   padding: '14px',
                   fontSize: '16px',
-                  fontWeight: '600',
+                  fontWeight: '700',
+                  letterSpacing: '0.3px',
                   cursor: 'pointer',
-                  transition: 'background-color 0.2s',
-                  boxShadow: '0 2px 6px rgba(26, 115, 232, 0.4)'
+                  transition: 'background-color 0.2s, transform 0.1s',
+                  boxShadow: '0 4px 14px rgba(158, 171, 157, 0.35)'
                 }}
               >
-                Join now
+                Join Meeting
               </button>
             </form>
           </div>
@@ -397,4 +442,3 @@ export default function Lobby({ onJoinRoom }) {
     </div>
   );
 }
-
