@@ -10,7 +10,9 @@ import {
   Users,
   Info,
   Copy,
-  Check
+  Check,
+  Hand,
+  Activity
 } from 'lucide-react';
 
 export default function Controls({
@@ -18,12 +20,16 @@ export default function Controls({
   isAudioMuted,
   isVideoOff,
   isScreenSharing,
+  isHandRaised,
   participantCount,
-  activePanel, // 'chat' | 'people' | 'info' | null
+  activePanel,
+  showStats,
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
+  onToggleRaiseHand,
   onTogglePanel,
+  onToggleStats,
   onLeaveRoom
 }) {
   const [currentTime, setCurrentTime] = useState('');
@@ -47,7 +53,7 @@ export default function Controls({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const buttonStyle = (isActive, isAlert = false, isAccent = false) => ({
+  const buttonStyle = (isActive, isAlert = false, isAccent = false, isAmber = false) => ({
     width: '48px',
     height: '48px',
     borderRadius: '50%',
@@ -58,12 +64,14 @@ export default function Controls({
     cursor: 'pointer',
     backgroundColor: isAlert
       ? '#ea4335'
+      : isAmber
+      ? '#f2994a'
       : isAccent
       ? '#1a73e8'
       : isActive
       ? '#8ab4f8'
       : '#3c4043',
-    color: isActive ? '#202124' : '#ffffff',
+    color: isAmber || isActive ? '#202124' : '#ffffff',
     transition: 'background-color 0.2s, transform 0.1s',
     outline: 'none'
   });
@@ -143,6 +151,15 @@ export default function Controls({
           <ScreenShare size={20} />
         </button>
 
+        {/* Raise Hand Toggle */}
+        <button
+          onClick={onToggleRaiseHand}
+          title={isHandRaised ? 'Lower hand' : 'Raise hand'}
+          style={buttonStyle(false, false, false, isHandRaised)}
+        >
+          <Hand size={20} />
+        </button>
+
         {/* Leave Call Button */}
         <button
           onClick={onLeaveRoom}
@@ -159,6 +176,24 @@ export default function Controls({
 
       {/* Right section: Panels and Extra Tools */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '220px', justifyContent: 'flex-end' }}>
+        {/* Scale Telemetry HUD */}
+        <button
+          onClick={onToggleStats}
+          title="Scalability & bandwidth telemetry"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: showStats ? '#8ab4f8' : '#e8eaed',
+            cursor: 'pointer',
+            padding: '8px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center'
+          }}
+        >
+          <Activity size={22} />
+        </button>
+
         {/* Meeting Info */}
         <button
           onClick={() => onTogglePanel('info')}
@@ -235,4 +270,3 @@ export default function Controls({
     </div>
   );
 }
-

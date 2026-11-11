@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { MicOff, Pin, User } from 'lucide-react';
+import { MicOff, Pin, Hand, Volume2 } from 'lucide-react';
 
 export default function VideoTile({
   stream,
@@ -9,6 +9,8 @@ export default function VideoTile({
   isLocal = false,
   isScreenSharing = false,
   isPinned = false,
+  isSpeaking = false,
+  isHandRaised = false,
   onPin = () => {}
 }) {
   const videoRef = useRef(null);
@@ -19,7 +21,6 @@ export default function VideoTile({
     }
   }, [stream]);
 
-  // Initial avatar letter
   const initial = userName ? userName.charAt(0).toUpperCase() : '?';
 
   return (
@@ -34,9 +35,13 @@ export default function VideoTile({
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)',
+        boxShadow: isSpeaking
+          ? '0 0 0 3px #1a73e8, 0 8px 16px rgba(26, 115, 232, 0.4)'
+          : isPinned
+          ? '0 0 0 2px #8ab4f8'
+          : '0 4px 6px -1px rgba(0, 0, 0, 0.3)',
         transition: 'all 0.2s ease-in-out',
-        border: isPinned ? '2px solid #8ab4f8' : '1px solid #4a4d51'
+        border: '1px solid #4a4d51'
       }}
     >
       {/* Video element */}
@@ -44,7 +49,7 @@ export default function VideoTile({
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isLocal} // Always mute local video element to avoid self-echo
+        muted={isLocal}
         style={{
           width: '100%',
           height: '100%',
@@ -70,14 +75,15 @@ export default function VideoTile({
               width: '96px',
               height: '96px',
               borderRadius: '50%',
-              backgroundColor: '#1a73e8',
+              backgroundColor: isSpeaking ? '#1a73e8' : '#5f6368',
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: '36px',
               fontWeight: '600',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+              boxShadow: isSpeaking ? '0 0 20px rgba(26, 115, 232, 0.8)' : '0 4px 12px rgba(0,0,0,0.4)',
+              transition: 'background-color 0.2s, box-shadow 0.2s'
             }}
           >
             {initial}
@@ -88,7 +94,31 @@ export default function VideoTile({
         </div>
       )}
 
-      {/* Pin button on hover */}
+      {/* Top Left: Hand Raised Badge */}
+      {isHandRaised && (
+        <div
+          title="Hand is raised"
+          style={{
+            position: 'absolute',
+            top: '12px',
+            left: '12px',
+            backgroundColor: '#f2994a',
+            color: '#202124',
+            borderRadius: '16px',
+            padding: '4px 8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '12px',
+            fontWeight: '600',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.4)'
+          }}
+        >
+          <Hand size={14} /> Raised hand
+        </div>
+      )}
+
+      {/* Top Right: Pin button */}
       <button
         onClick={onPin}
         title={isPinned ? 'Unpin' : 'Pin to screen'}
@@ -113,13 +143,13 @@ export default function VideoTile({
         <Pin size={16} />
       </button>
 
-      {/* Participant info bottom pill */}
+      {/* Bottom info pill */}
       <div
         style={{
           position: 'absolute',
           bottom: '12px',
           left: '12px',
-          backgroundColor: 'rgba(32, 33, 36, 0.75)',
+          backgroundColor: 'rgba(32, 33, 36, 0.8)',
           padding: '4px 10px',
           borderRadius: '16px',
           display: 'flex',
@@ -142,6 +172,10 @@ export default function VideoTile({
           {userName} {isLocal && '(You)'}
         </span>
 
+        {isSpeaking && !isAudioMuted && (
+          <Volume2 size={14} color="#8ab4f8" className="animate-pulse" />
+        )}
+
         {isAudioMuted && (
           <div
             style={{
@@ -161,4 +195,3 @@ export default function VideoTile({
     </div>
   );
 }
-

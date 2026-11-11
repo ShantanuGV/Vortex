@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "start:cluster": "node cluster.js",
     "dev": "node --watch index.js"
   },
   "dependencies": {

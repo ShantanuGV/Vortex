@@ -4,6 +4,7 @@ import Controls from './Controls';
 import ChatPanel from './ChatPanel';
 import ParticipantsPanel from './ParticipantsPanel';
 import InfoPanel from './InfoPanel';
+import StatsHUD from './StatsHUD';
 
 export default function MeetingRoom({
   localStream,
@@ -12,21 +13,31 @@ export default function MeetingRoom({
   isAudioMuted,
   isVideoOff,
   isScreenSharing,
-  remotePeers,
+  isHandRaised,
+  roster,
+  remoteStreams,
+  currentPage,
+  totalPages,
+  setCurrentPage,
+  activeSpeakerId,
+  telemetry,
   chatMessages,
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
+  onToggleRaiseHand,
   onSendMessage,
   onLeaveRoom
 }) {
   const [activePanel, setActivePanel] = useState(null); // 'chat' | 'people' | 'info' | null
+  const [showStats, setShowStats] = useState(false);
 
   const handleTogglePanel = (panelName) => {
     setActivePanel((current) => (current === panelName ? null : panelName));
   };
 
-  const participantCount = 1 + Object.keys(remotePeers).length;
+  const participantCount = 1 + Object.keys(roster).length;
+  const activeSpeaker = activeSpeakerId ? roster[activeSpeakerId]?.userName : null;
 
   return (
     <div
@@ -36,9 +47,19 @@ export default function MeetingRoom({
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: '#202124',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        position: 'relative'
       }}
     >
+      {/* Scalability & Telemetry HUD */}
+      {showStats && (
+        <StatsHUD
+          telemetry={telemetry}
+          activeSpeakerName={activeSpeaker}
+          onClose={() => setShowStats(false)}
+        />
+      )}
+
       {/* Main Center Video Area + Optional Side Panel */}
       <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
         {/* Video Grid */}
@@ -49,7 +70,13 @@ export default function MeetingRoom({
             isAudioMuted={isAudioMuted}
             isVideoOff={isVideoOff}
             isScreenSharing={isScreenSharing}
-            remotePeers={remotePeers}
+            isHandRaised={isHandRaised}
+            roster={roster}
+            remoteStreams={remoteStreams}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            activeSpeakerId={activeSpeakerId}
           />
         </div>
 
@@ -67,7 +94,8 @@ export default function MeetingRoom({
             userName={userName}
             isAudioMuted={isAudioMuted}
             isVideoOff={isVideoOff}
-            remotePeers={remotePeers}
+            isHandRaised={isHandRaised}
+            roster={roster}
             onClose={() => setActivePanel(null)}
           />
         )}
@@ -86,15 +114,18 @@ export default function MeetingRoom({
         isAudioMuted={isAudioMuted}
         isVideoOff={isVideoOff}
         isScreenSharing={isScreenSharing}
+        isHandRaised={isHandRaised}
         participantCount={participantCount}
         activePanel={activePanel}
+        showStats={showStats}
         onToggleAudio={onToggleAudio}
         onToggleVideo={onToggleVideo}
         onToggleScreenShare={onToggleScreenShare}
+        onToggleRaiseHand={onToggleRaiseHand}
         onTogglePanel={handleTogglePanel}
+        onToggleStats={() => setShowStats(!showStats)}
         onLeaveRoom={onLeaveRoom}
       />
     </div>
   );
 }
-

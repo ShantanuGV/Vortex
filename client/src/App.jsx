@@ -8,10 +8,17 @@ export default function App() {
 
   const {
     localStream,
-    remotePeers,
+    roster,
+    remoteStreams,
+    currentPage,
+    totalPages,
+    setCurrentPage,
+    activeSpeakerId,
+    telemetry,
     isAudioMuted,
     isVideoOff,
     isScreenSharing,
+    isHandRaised,
     chatMessages,
     roomId,
     userName,
@@ -19,6 +26,7 @@ export default function App() {
     toggleAudio,
     toggleVideo,
     toggleScreenShare,
+    toggleRaiseHand,
     sendChatMessage,
     leaveRoom
   } = useWebRTC();
@@ -50,11 +58,19 @@ export default function App() {
           isAudioMuted={isAudioMuted}
           isVideoOff={isVideoOff}
           isScreenSharing={isScreenSharing}
-          remotePeers={remotePeers}
+          isHandRaised={isHandRaised}
+          roster={roster}
+          remoteStreams={remoteStreams}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          setCurrentPage={setCurrentPage}
+          activeSpeakerId={activeSpeakerId}
+          telemetry={telemetry}
           chatMessages={chatMessages}
           onToggleAudio={toggleAudio}
           onToggleVideo={toggleVideo}
           onToggleScreenShare={toggleScreenShare}
+          onToggleRaiseHand={toggleRaiseHand}
           onSendMessage={sendChatMessage}
           onLeaveRoom={handleLeaveRoom}
         />
