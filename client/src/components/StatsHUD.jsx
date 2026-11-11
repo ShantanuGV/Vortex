@@ -75,3 +75,4 @@ export default function StatsHUD({ telemetry, activeSpeakerName, onClose }) {
     </div>
   );
 }
+

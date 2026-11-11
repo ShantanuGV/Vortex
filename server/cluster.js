@@ -30,3 +30,4 @@ if (cluster.isPrimary) {
   // Worker process runs the server
   import('./index.js');
 }
+
