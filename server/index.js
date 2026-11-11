@@ -519,9 +519,9 @@ io.on('connection', (socket) => {
     } else {
       // If host left, elect the next available participant as host
       if (socket.id === room.hostId) {
-        const nextHostId = Array.from(room.participants.keys())[0];
-        room.hostId = nextHostId;
-        const newHost = room.participants.get(nextHostId);
+        const newHostId = Array.from(room.participants.keys())[0];
+        room.hostId = newHostId;
+        const newHost = room.participants.get(newHostId);
         if (newHost) {
           newHost.isHost = true;
           newHost.role = 'host';
@@ -529,7 +529,7 @@ io.on('connection', (socket) => {
             newHostId,
             newHostName: newHost.userName
           });
-          console.log(`[Admin] Host migrated to ${newHost.userName} (${nextHostId}) in room "${roomId}"`);
+          console.log(`[Admin] Host migrated to ${newHost.userName} (${newHostId}) in room "${roomId}"`);
         }
       }
 
