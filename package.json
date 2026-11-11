@@ -8,6 +8,7 @@
     "start": "npm --prefix server start",
     "server": "npm --prefix server start",
     "client": "npm --prefix client run dev",
+    "test": "node tests/integration.test.mjs",
     "rea:audit": "npx rea-agents evaluate-reconstruction-coverage .rea/reconstruction-ledger.json",
     "rea:doctor": "npx rea-agents doctor"
   }

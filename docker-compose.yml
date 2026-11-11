@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  vortex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vortex-meeting-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - CORS_ORIGIN=*
+      - RATE_LIMIT_PER_SEC=50
+      # Optional TURN server configurations for corporate NAT traversal:
+      # - VITE_TURN_SERVERS=turn:your-turn-server.com:3478
+      # - VITE_TURN_USERNAME=vortex
+      # - VITE_TURN_CREDENTIAL=secretpassword
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 2048M
+        reservations:
+          cpus: '0.5'
+          memory: 256M

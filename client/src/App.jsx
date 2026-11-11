@@ -16,6 +16,9 @@ export default function App() {
     activeSpeakerId,
     micVolume,
     telemetry,
+    networkStats,
+    toasts,
+    removeToast,
     isHost,
     hostId,
     roomSettings,
@@ -109,6 +112,9 @@ export default function App() {
           activeSpeakerId={activeSpeakerId}
           micVolume={micVolume}
           telemetry={telemetry}
+          networkStats={networkStats}
+          toasts={toasts}
+          onDismissToast={removeToast}
           chatMessages={chatMessages}
           roomSettings={roomSettings}
           personalSettings={personalSettings}

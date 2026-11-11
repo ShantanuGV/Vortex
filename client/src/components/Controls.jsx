@@ -14,7 +14,9 @@ import {
   Hand,
   Activity,
   Settings as SettingsIcon,
-  ShieldCheck
+  ShieldCheck,
+  Wifi,
+  Keyboard
 } from 'lucide-react';
 
 export default function Controls({
@@ -28,6 +30,8 @@ export default function Controls({
   activePanel,
   showStats,
   roomSettings,
+  networkStats = { quality: 'excellent', rttMs: 0, packetLossPct: 0, jitterMs: 0 },
+  micVolume = 0,
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
@@ -35,6 +39,7 @@ export default function Controls({
   onTogglePanel,
   onToggleStats,
   onOpenSettings,
+  onOpenShortcuts = () => {},
   onLeaveRoom
 }) {
   const [currentTime, setCurrentTime] = useState('');
@@ -159,6 +164,42 @@ export default function Controls({
             <ShieldCheck size={12} /> Host
           </span>
         )}
+
+        {/* Realtime WebRTC Network Quality Pill */}
+        <div
+          title={`Network: ${networkStats.quality.toUpperCase()} | Latency: ${networkStats.rttMs || '<10'}ms | Loss: ${networkStats.packetLossPct || '0'}% | Jitter: ${networkStats.jitterMs || '0'}ms`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            fontSize: '11px',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            backgroundColor:
+              networkStats.quality === 'poor'
+                ? 'rgba(234, 67, 53, 0.15)'
+                : networkStats.quality === 'fair'
+                ? 'rgba(229, 169, 103, 0.15)'
+                : 'rgba(158, 171, 157, 0.15)',
+            color:
+              networkStats.quality === 'poor'
+                ? '#EA4335'
+                : networkStats.quality === 'fair'
+                ? '#E5A967'
+                : '#9EAB9D',
+            border: `1px solid ${
+              networkStats.quality === 'poor'
+                ? 'rgba(234, 67, 53, 0.3)'
+                : networkStats.quality === 'fair'
+                ? 'rgba(229, 169, 103, 0.3)'
+                : 'rgba(158, 171, 157, 0.3)'
+            }`,
+            cursor: 'help'
+          }}
+        >
+          <Wifi size={12} />
+          <span>{networkStats.rttMs ? `${networkStats.rttMs}ms` : 'Good'}</span>
+        </div>
       </div>
 
       {/* Center section: Main Call Controls */}
@@ -351,6 +392,25 @@ export default function Controls({
           }}
         >
           <SettingsIcon size={22} />
+        </button>
+
+        {/* Keyboard Shortcuts Help */}
+        <button
+          onClick={onOpenShortcuts}
+          title="Keyboard shortcuts (?)"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#8A9497',
+            cursor: 'pointer',
+            padding: '8px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            transition: 'color 0.2s'
+          }}
+        >
+          <Keyboard size={20} />
         </button>
       </div>
     </div>

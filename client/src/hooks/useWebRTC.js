@@ -1,13 +1,37 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 
-const ICE_SERVERS = {
-  iceServers: [
+// Dynamic ICE & Enterprise TURN Configuration
+function getIceServers() {
+  const servers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' }
-  ]
-};
+  ];
+
+  const customStun = import.meta.env.VITE_STUN_SERVERS;
+  if (customStun) {
+    customStun.split(',').forEach((url) => {
+      if (url.trim()) servers.push({ urls: url.trim() });
+    });
+  }
+
+  const turnUrl = import.meta.env.VITE_TURN_SERVERS;
+  const turnUser = import.meta.env.VITE_TURN_USERNAME;
+  const turnCred = import.meta.env.VITE_TURN_CREDENTIAL;
+  if (turnUrl) {
+    const urls = turnUrl.includes(',') ? turnUrl.split(',').map((u) => u.trim()) : turnUrl.trim();
+    servers.push({
+      urls,
+      username: turnUser || '',
+      credential: turnCred || ''
+    });
+  }
+
+  return { iceServers: servers };
+}
+
+const ICE_SERVERS = getIceServers();
 
 const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || (
   typeof window !== 'undefined'
@@ -32,6 +56,30 @@ export function useWebRTC() {
     allowMic: true,
     allowCamera: true
   });
+
+  // Enterprise WebRTC Diagnostics (RTT, packet loss, jitter)
+  const [networkStats, setNetworkStats] = useState({
+    quality: 'excellent', // 'excellent' | 'good' | 'fair' | 'poor'
+    rttMs: 0,
+    packetLossPct: 0,
+    jitterMs: 0
+  });
+
+  // Toast Notification Pipeline
+  const [toasts, setToasts] = useState([]);
+  const addToast = useCallback((message, type = 'info', duration = 3500) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, duration);
+  }, []);
+
+  const removeToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const hostSecretRef = useRef(null);
 
   // Personal Settings (Persisted locally)
   const [personalSettings, setPersonalSettings] = useState(() => {
@@ -290,6 +338,34 @@ export function useWebRTC() {
       };
     };
 
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      console.log(`[WebRTC] ICE state with ${peerId}: ${state}`);
+      if (state === 'failed' || state === 'disconnected') {
+        console.warn(`[WebRTC] ICE interrupted on ${peerId}. Triggering auto ICE restart...`);
+        addToast('Network connection interrupted. Attempting automatic ICE restart...', 'warning');
+
+        try {
+          pc.restartIce();
+          pc.createOffer({ iceRestart: true })
+            .then((offer) => pc.setLocalDescription(offer))
+            .then(() => {
+              if (socketRef.current) {
+                socketRef.current.emit('offer', {
+                  targetPeerId: peerId,
+                  sdp: pc.localDescription
+                });
+              }
+            })
+            .catch((e) => console.warn('[WebRTC] ICE restart offer negotiation failed:', e));
+        } catch (e) {
+          console.warn('[WebRTC] restartIce error:', e);
+        }
+      } else if (state === 'connected') {
+        addToast('WebRTC media stream connected.', 'success', 2500);
+      }
+    };
+
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] Connection with ${peerId}: ${pc.connectionState}`);
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
@@ -298,7 +374,7 @@ export function useWebRTC() {
     };
 
     return pc;
-  }, [cleanupPeer]);
+  }, [cleanupPeer, addToast]);
 
   // Compute visible peers based on pagination and active speaker
   const peerList = useMemo(() => Object.values(roster), [roster]);
@@ -368,6 +444,60 @@ export function useWebRTC() {
     });
   }, [visiblePeerIds, isConnected, roster, createPeerConnection, cleanupPeer]);
 
+  // Enterprise WebRTC Diagnostics Poller (RTT, packet loss, jitter)
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const statsInterval = setInterval(async () => {
+      const pcEntries = Object.entries(peerConnections.current);
+      if (pcEntries.length === 0) return;
+
+      const targetEntry = isHost
+        ? pcEntries[0]
+        : (hostId && peerConnections.current[hostId] ? [hostId, peerConnections.current[hostId]] : pcEntries[0]);
+
+      if (!targetEntry || !targetEntry[1]) return;
+      const targetPc = targetEntry[1];
+
+      if (targetPc.connectionState !== 'connected' && targetPc.iceConnectionState !== 'connected') return;
+
+      try {
+        const stats = await targetPc.getStats();
+        let rtt = 0;
+        let packetsLost = 0;
+        let packetsReceived = 0;
+        let jitter = 0;
+
+        stats.forEach((report) => {
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            if (report.currentRoundTripTime !== undefined) {
+              rtt = Math.round(report.currentRoundTripTime * 1000);
+            }
+          }
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            packetsLost = report.packetsLost || 0;
+            packetsReceived = report.packetsReceived || 0;
+            jitter = Math.round((report.jitter || 0) * 1000);
+          }
+        });
+
+        const totalPackets = packetsLost + packetsReceived;
+        const lossPct = totalPackets > 0 ? +((packetsLost / totalPackets) * 100).toFixed(1) : 0;
+
+        let quality = 'excellent';
+        if (rtt > 350 || lossPct > 4) quality = 'poor';
+        else if (rtt > 200 || lossPct > 2) quality = 'fair';
+        else if (rtt > 90 || lossPct > 0.5) quality = 'good';
+
+        setNetworkStats({ quality, rttMs: rtt, packetLossPct: lossPct, jitterMs: jitter });
+      } catch (err) {
+        // stats ignored on closed connection
+      }
+    }, 2500);
+
+    return () => clearInterval(statsInterval);
+  }, [isConnected, isHost, hostId]);
+
   // Join Room
   const joinRoom = useCallback(async ({ roomId: targetRoomId, userName: name, initialAudioMuted = false, initialVideoOff = false }) => {
     setRoomId(targetRoomId);
@@ -399,11 +529,24 @@ export function useWebRTC() {
       console.log(`[Socket] Connected to signaling engine: ${socket.id}`);
       setIsConnected(true);
 
+      // Check for saved host session token to restore host privileges
+      let savedHostSecret = null;
+      try {
+        const session = sessionStorage.getItem('vortex_session');
+        if (session) {
+          const parsed = JSON.parse(session);
+          if (parsed.roomId === targetRoomId) {
+            savedHostSecret = parsed.hostSecret;
+          }
+        }
+      } catch {}
+
       socket.emit('join-room', {
         roomId: targetRoomId,
         userName: name,
         isAudioMuted: startMuted,
-        isVideoOff: startVideoOff
+        isVideoOff: startVideoOff,
+        hostSecret: savedHostSecret
       });
     });
 
@@ -420,15 +563,17 @@ export function useWebRTC() {
       setIsWaitingForAdmission(false);
       setAdmissionStatus('denied');
       setDeniedReason(message || 'The host declined your request to join.');
+      addToast(message || 'Host declined entry request.', 'error');
     });
 
     // Knocking notification for Host
-    socket.on('participant-knock', ({ peerId, userName, requestedAt }) => {
-      console.log(`[Admission] New participant knocking: ${userName} (${peerId})`);
+    socket.on('participant-knock', ({ peerId, userName: knockingUser, requestedAt }) => {
+      console.log(`[Admission] New participant knocking: ${knockingUser} (${peerId})`);
       setWaitingPeers((prev) => {
         const filtered = prev.filter((p) => p.peerId !== peerId);
-        return [...filtered, { peerId, userName, requestedAt }];
+        return [...filtered, { peerId, userName: knockingUser, requestedAt }];
       });
+      addToast(`${knockingUser} requested to join the meeting.`, 'info');
     });
 
     // Knock handled
@@ -447,11 +592,24 @@ export function useWebRTC() {
     });
 
     // Room Snapshot with Admin & Authority state
-    socket.on('room-snapshot', ({ participants, isHost: hostStatus, hostId: currentHostId, settings, waitingList }) => {
+    socket.on('room-snapshot', ({ participants, isHost: hostStatus, hostSecret: receivedHostSecret, hostId: currentHostId, settings, waitingList }) => {
       setIsWaitingForAdmission(false);
       setAdmissionStatus(null);
       setIsHost(hostStatus);
       setHostId(currentHostId);
+
+      // Persist host secret if this client is the host
+      if (hostStatus && receivedHostSecret) {
+        hostSecretRef.current = receivedHostSecret;
+        try {
+          sessionStorage.setItem('vortex_session', JSON.stringify({
+            roomId: targetRoomId,
+            userName: name,
+            hostSecret: receivedHostSecret
+          }));
+        } catch {}
+      }
+
       if (settings) {
         setRoomSettings(settings);
       }
@@ -466,11 +624,32 @@ export function useWebRTC() {
         }
       });
       setRoster(map);
+
+      addToast(
+        hostStatus
+          ? 'Connected as Meeting Host. Full management unlocked.'
+          : 'Joined in Webinar Privacy Mode (Host-Broadcast).',
+        'info'
+      );
+    });
+
+    // Session token update on host migration
+    socket.on('host-token-update', ({ hostSecret: newSecret }) => {
+      hostSecretRef.current = newSecret;
+      try {
+        sessionStorage.setItem('vortex_session', JSON.stringify({
+          roomId: targetRoomId,
+          userName: name,
+          hostSecret: newSecret
+        }));
+      } catch {}
+      addToast('Promoted to Host with secure admin token.', 'success');
     });
 
     // Room Settings Updated by Host
     socket.on('room-settings-updated', ({ settings, updatedBy }) => {
       setRoomSettings(settings);
+      addToast(`Meeting policies updated by ${updatedBy}`, 'info');
       console.log(`[Admin] Room settings updated by ${updatedBy}:`, settings);
     });
 
@@ -480,7 +659,7 @@ export function useWebRTC() {
         localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = false));
       }
       setIsAudioMuted(true);
-      alert('Your microphone was muted by the meeting host.');
+      addToast('Your microphone was muted by the meeting host.', 'warning');
     });
 
     socket.on('force-disable-video', () => {
@@ -488,16 +667,16 @@ export function useWebRTC() {
         localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = false));
       }
       setIsVideoOff(true);
-      alert('Your video camera was disabled by the meeting host.');
+      addToast('Your video camera was disabled by the meeting host.', 'warning');
     });
 
     socket.on('kicked-from-room', ({ reason }) => {
-      alert(reason || 'You were removed from the meeting by the host.');
+      addToast(reason || 'You were removed from the meeting by the host.', 'error');
       leaveRoom();
     });
 
     socket.on('meeting-ended-by-host', ({ message }) => {
-      alert(message || 'The meeting was ended for everyone by the host.');
+      addToast(message || 'The meeting was ended for everyone by the host.', 'info');
       leaveRoom();
     });
 
@@ -520,9 +699,9 @@ export function useWebRTC() {
       });
 
       if (amIHost) {
-        alert('You are now the meeting host.');
+        addToast('You are now the meeting host.', 'success');
       } else {
-        console.log(`[Admin] Host changed to ${newHostName}`);
+        addToast(`Host authority transferred to ${newHostName}.`, 'info');
       }
     });
 
@@ -534,11 +713,19 @@ export function useWebRTC() {
     });
 
     socket.on('admin-warning', ({ message }) => {
-      alert(message);
+      addToast(message, 'warning');
+    });
+
+    socket.on('rate-limit-warning', ({ message }) => {
+      addToast(message, 'warning');
+    });
+
+    socket.on('server-shutdown', ({ message }) => {
+      addToast(message, 'warning');
     });
 
     socket.on('join-error', ({ message }) => {
-      alert(message);
+      addToast(message, 'error');
       leaveRoom();
     });
 
@@ -778,13 +965,13 @@ export function useWebRTC() {
   const sendChatMessage = useCallback((message) => {
     if (!message || !message.trim()) return;
     if (!isHost && !roomSettings.allowChat) {
-      alert('In-call chat is turned off by the host.');
+      addToast('In-call chat is turned off by the host.', 'warning');
       return;
     }
     if (socketRef.current) {
       socketRef.current.emit('send-chat', { message: message.trim() });
     }
-  }, [isHost, roomSettings.allowChat]);
+  }, [isHost, roomSettings.allowChat, addToast]);
 
   // --- Admin Host Controls ---
 
@@ -924,6 +1111,10 @@ export function useWebRTC() {
       socketRef.current = null;
     }
 
+    try {
+      sessionStorage.removeItem('vortex_session');
+    } catch {}
+
     setLocalStream(null);
     setRoster({});
     setRemoteStreams({});
@@ -972,6 +1163,10 @@ export function useWebRTC() {
     totalPages,
     setCurrentPage,
     telemetry,
+    networkStats,
+    toasts,
+    addToast,
+    removeToast,
     // Authority & Settings
     isHost,
     hostId,

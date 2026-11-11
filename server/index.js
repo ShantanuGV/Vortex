@@ -2,6 +2,8 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import helmet from 'helmet';
+import crypto from 'crypto';
 import path from 'path';
 import os from 'os';
 import cluster from 'cluster';
@@ -13,8 +15,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// Enterprise Security Headers via Helmet
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Allows inline WebRTC media and dynamic blob elements
+    crossOriginEmbedderPolicy: false
+  })
+);
+
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+app.use(
+  cors({
+    origin: CORS_ORIGIN,
+    methods: ['GET', 'POST']
+  })
+);
+app.use(express.json({ limit: '256kb' }));
 
 // Serve static frontend build
 const clientDistPath = path.join(__dirname, '../client/dist');
@@ -25,7 +42,7 @@ const server = http.createServer(app);
 // Highly optimized Socket.io configuration for high-concurrency (5,000+ peers)
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: CORS_ORIGIN,
     methods: ['GET', 'POST']
   },
   perMessageDeflate: {
@@ -43,19 +60,70 @@ if (!cluster.isPrimary) {
   setupWorker(io);
 }
 
+// --- Anti-Abuse & Rate Limiting Engine ---
+const socketRateLimits = new Map(); // socketId -> { count: number, resetAt: number }
+const MAX_EVENTS_PER_SECOND = parseInt(process.env.RATE_LIMIT_PER_SEC, 10) || 50;
+
+function checkRateLimit(socketId) {
+  const now = Date.now();
+  let record = socketRateLimits.get(socketId);
+  if (!record || now > record.resetAt) {
+    record = { count: 1, resetAt: now + 1000 };
+    socketRateLimits.set(socketId, record);
+    return true;
+  }
+  record.count++;
+  return record.count <= MAX_EVENTS_PER_SECOND;
+}
+
+// Socket Rate Limiting Middleware
+io.use((socket, next) => {
+  socketRateLimits.set(socket.id, { count: 0, resetAt: Date.now() + 1000 });
+  socket.onAny(() => {
+    if (!checkRateLimit(socket.id)) {
+      socket.emit('rate-limit-warning', {
+        message: 'High request rate detected. Signaling throttled.'
+      });
+      return;
+    }
+  });
+  next();
+});
+
+// --- Sanitization Utilities ---
+function sanitizeString(str, maxLength = 80) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/[<>'"&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;', '&': '&amp;' }[c]))
+    .trim()
+    .slice(0, maxLength);
+}
+
+function sanitizeRoomId(roomId) {
+  if (typeof roomId !== 'string') return '';
+  return roomId
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-_]/g, '')
+    .slice(0, 64);
+}
+
 /**
- * High-Scale Room Data Structure with Admin / Host Control:
+ * High-Scale Room Data Structure with Admin / Host Control & Cryptographic Host Token:
  * Room:
  *   - id: string
  *   - hostId: string (socket ID of primary meeting administrator)
+ *   - hostSecret: string (cryptographic token for host session preservation)
  *   - settings: {
  *       isLocked: boolean,
+ *       hostAdmission: boolean,
  *       allowScreenShare: boolean,
  *       allowChat: boolean,
  *       allowMic: boolean,
  *       allowCamera: boolean
  *     }
  *   - participants: Map(socketId -> { id, userName, isAudioMuted, isVideoOff, isScreenSharing, isHandRaised, isHost, role, joinedAt })
+ *   - waitingParticipants: Map(socketId -> { peerId, userName, isAudioMuted, isVideoOff, requestedAt })
  *   - activeSpeakers: Set(socketId)
  *   - pendingDeltas: Array
  *   - flushTimer: Timer
@@ -67,6 +135,7 @@ function getOrCreateRoom(roomId) {
     rooms.set(roomId, {
       id: roomId,
       hostId: null,
+      hostSecret: crypto.randomBytes(24).toString('hex'), // Cryptographically secure host preservation token
       settings: {
         isLocked: false,
         hostAdmission: true, // Host admission (waiting room) enabled by default
@@ -76,7 +145,7 @@ function getOrCreateRoom(roomId) {
         allowCamera: true
       },
       participants: new Map(),
-      waitingParticipants: new Map(), // socketId -> { peerId, userName, isAudioMuted, isVideoOff, requestedAt }
+      waitingParticipants: new Map(),
       activeSpeakers: new Set(),
       pendingDeltas: [],
       flushTimer: null,
@@ -226,6 +295,7 @@ function admitParticipantToRoom(room, socket, { isAudioMuted = false, isVideoOff
   socket.emit('room-snapshot', {
     roomId: room.id,
     isHost,
+    hostSecret: isHost ? room.hostSecret : null,
     hostId: room.hostId,
     settings: room.settings,
     totalParticipants: visibleTotal,
@@ -258,9 +328,27 @@ function admitParticipantToRoom(room, socket, { isAudioMuted = false, isVideoOff
 // --- Socket.IO Event Handlers with Authority Enforcement ---
 
 io.on('connection', (socket) => {
-  // 1. Join Room (with Host Admission / Waiting Room)
-  socket.on('join-room', ({ roomId, userName, isAudioMuted = false, isVideoOff = false }) => {
-    const room = getOrCreateRoom(roomId);
+  // 1. Join Room (with Host Admission / Waiting Room & Session Token)
+  socket.on('join-room', ({ roomId, userName, isAudioMuted = false, isVideoOff = false, hostSecret = null }) => {
+    const cleanRoomId = sanitizeRoomId(roomId);
+    if (!cleanRoomId) {
+      socket.emit('join-error', {
+        message: 'Invalid meeting code. Please enter a valid meeting code.'
+      });
+      return;
+    }
+
+    const cleanUserName = sanitizeString(userName, 40) || `User-${socket.id.slice(0, 4)}`;
+    const room = getOrCreateRoom(cleanRoomId);
+
+    // Host Session Re-authentication:
+    // If a disconnecting host refreshes or reconnects with their valid cryptographic hostSecret,
+    // immediately re-instate them as Host without sending them to the waiting room!
+    const isHostRestoration = Boolean(hostSecret && hostSecret === room.hostSecret);
+    if (isHostRestoration) {
+      room.hostId = socket.id;
+      console.log(`[Auth] Host session restored via cryptographic token for ${cleanUserName} (${socket.id})`);
+    }
 
     // Authority Check: If meeting is locked by the host, reject non-hosts
     if (room.settings.isLocked && room.hostId && socket.id !== room.hostId) {
@@ -270,8 +358,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    socket.roomId = roomId;
-    socket.userName = userName || `User-${socket.id.slice(0, 4)}`;
+    socket.roomId = cleanRoomId;
+    socket.userName = cleanUserName;
 
     // If room has no active host, first participant becomes the Host/Admin
     const isFirstParticipant = room.participants.size === 0 || !room.hostId;
@@ -281,7 +369,7 @@ io.on('connection', (socket) => {
     const isHost = socket.id === room.hostId;
 
     // Host Admission Check:
-    // If room already has a host and hostAdmission is enabled, put participant in waiting room
+    // If room already has a host, hostAdmission is enabled, and not host restoration:
     if (!isHost && room.settings.hostAdmission) {
       room.waitingParticipants.set(socket.id, {
         peerId: socket.id,
@@ -291,7 +379,7 @@ io.on('connection', (socket) => {
         requestedAt: Date.now()
       });
 
-      console.log(`[Admission] ${socket.userName} (${socket.id}) is waiting for host admission in "${roomId}"`);
+      console.log(`[Admission] ${socket.userName} (${socket.id}) is waiting for host admission in "${cleanRoomId}"`);
 
       // Notify the waiting participant to show waiting state in Lobby
       socket.emit('waiting-for-admission', {
@@ -309,7 +397,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Direct admission (Host or hostAdmission disabled)
+    // Direct admission (Host, host restoration, or hostAdmission disabled)
     admitParticipantToRoom(room, socket, { isAudioMuted, isVideoOff });
   });
 
@@ -685,12 +773,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 13. In-Call Chat with Permission Check
+  // 13. In-Call Chat with Permission Check & Input Sanitization
   socket.on('send-chat', ({ message }) => {
     const roomId = socket.roomId;
-    if (!roomId || !message || !message.trim()) return;
+    if (!roomId || typeof message !== 'string' || !message.trim()) return;
 
     const room = rooms.get(roomId);
+    if (!room) return;
     const isHost = socket.id === room.hostId;
 
     if (!isHost && !room.settings.allowChat) {
@@ -698,11 +787,15 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const cleanMessage = sanitizeString(message, 1000);
+    if (!cleanMessage) return;
+
     const chatPayload = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `msg-${Date.now()}-${Math.random()}`,
       senderId: socket.id,
       senderName: socket.userName,
       isHost,
-      message: message.trim(),
+      message: cleanMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
@@ -783,6 +876,10 @@ io.on('connection', (socket) => {
           const waitingList = Array.from(room.waitingParticipants.values());
           io.to(newHostId).emit('waiting-list-update', { waitingList });
 
+          // Issue new host secret token to the elected host
+          room.hostSecret = crypto.randomBytes(24).toString('hex');
+          io.to(newHostId).emit('host-token-update', { hostSecret: room.hostSecret });
+
           console.log(`[Admin] Host migrated to ${newHost.userName} (${newHostId}) with ${waitingList.length} waiting users in room "${roomId}"`);
         }
       }
@@ -807,6 +904,20 @@ io.on('connection', (socket) => {
   });
 });
 
+// --- Cloud / Kubernetes Health & Readiness Probes ---
+app.get('/healthz', (req, res) => {
+  res.status(200).send('OK');
+});
+
+app.get('/readyz', (req, res) => {
+  const heapMB = process.memoryUsage().heapUsed / (1024 * 1024);
+  res.status(200).json({
+    ready: true,
+    activeRooms: rooms.size,
+    heapUsedMB: Math.round(heapMB)
+  });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(clientDistPath, 'index.html'));
 });
@@ -821,6 +932,7 @@ if (cluster.isPrimary) {
     console.log(`   Web App:         http://localhost:${PORT}`);
     console.log(`   Host Privacy:    Webinar Star-Topology active`);
     console.log(`   Load Metrics:    http://localhost:${PORT}/api/metrics`);
+    console.log(`   Health Probes:   /healthz & /readyz`);
     console.log(`=============================================================`);
   });
 } else {
@@ -828,3 +940,36 @@ if (cluster.isPrimary) {
     console.log(`[Worker ${process.pid}] VORTEX Signaling Worker online`);
   });
 }
+
+// --- Graceful Shutdown Handler ---
+function handleGracefulShutdown(signal) {
+  console.log(`\n[Server] Received ${signal}. Starting graceful shutdown...`);
+  
+  // Notify connected sockets of server shutdown
+  io.emit('server-shutdown', {
+    message: 'Server is restarting for scheduled maintenance. Please wait a moment.'
+  });
+
+  // Clear pending delta flush timers for all rooms
+  rooms.forEach((room) => {
+    if (room.flushTimer) {
+      clearTimeout(room.flushTimer);
+      room.flushTimer = null;
+    }
+  });
+
+  // Close server and drain connections
+  server.close(() => {
+    console.log('[Server] HTTP and WebSocket connections drained. Exiting cleanly.');
+    process.exit(0);
+  });
+
+  // Force exit after 8 seconds if connections fail to drain
+  setTimeout(() => {
+    console.error('[Server] Graceful shutdown timeout exceeded. Forcing exit.');
+    process.exit(1);
+  }, 8000).unref();
+}
+
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));

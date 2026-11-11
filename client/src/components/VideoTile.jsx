@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MicOff, Pin, Hand, Volume2 } from 'lucide-react';
+import { MicOff, Pin, Hand, Volume2, PictureInPicture2 } from 'lucide-react';
 import { getParticipantColor } from '../utils/colors';
 
 export default function VideoTile({
@@ -216,6 +216,43 @@ export default function VideoTile({
             }}
           >
             <MicOff size={14} />
+          </button>
+        )}
+
+        {/* Picture-in-Picture Button */}
+        {isHovered && !isVideoOff && document.pictureInPictureEnabled && (
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (videoRef.current) {
+                try {
+                  if (document.pictureInPictureElement === videoRef.current) {
+                    await document.exitPictureInPicture();
+                  } else {
+                    await videoRef.current.requestPictureInPicture();
+                  }
+                } catch (err) {
+                  console.warn('PiP failed:', err);
+                }
+              }
+            }}
+            title="Pop out in Picture-in-Picture window"
+            style={{
+              backgroundColor: 'rgba(37, 43, 45, 0.75)',
+              color: '#F4F3EF',
+              border: 'none',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              backdropFilter: 'blur(4px)',
+              transition: 'all 0.2s'
+            }}
+          >
+            <PictureInPicture2 size={15} />
           </button>
         )}
 

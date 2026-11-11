@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import VideoGrid from './VideoGrid';
 import Controls from './Controls';
 import ChatPanel from './ChatPanel';
@@ -6,6 +6,8 @@ import ParticipantsPanel from './ParticipantsPanel';
 import InfoPanel from './InfoPanel';
 import StatsHUD from './StatsHUD';
 import SettingsModal from './SettingsModal';
+import ToastContainer from './ToastContainer';
+import ShortcutsModal from './ShortcutsModal';
 
 export default function MeetingRoom({
   localStream,
@@ -27,6 +29,9 @@ export default function MeetingRoom({
   activeSpeakerId,
   micVolume,
   telemetry,
+  networkStats,
+  toasts = [],
+  onDismissToast = () => {},
   chatMessages,
   roomSettings,
   personalSettings,
@@ -50,6 +55,37 @@ export default function MeetingRoom({
   const [activePanel, setActivePanel] = useState(null); // 'chat' | 'people' | 'info' | null
   const [showStats, setShowStats] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Global Keyboard Shortcuts (Ctrl+D, Ctrl+E, Ctrl+H, ?, Esc)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger shortcuts if focus is inside an input or textarea
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        onToggleAudio();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        onToggleVideo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        onToggleRaiseHand();
+      } else if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcuts((prev) => !prev);
+      } else if (e.key === 'Escape') {
+        setShowShortcuts(false);
+        setShowSettings(false);
+        setShowStats(false);
+        setActivePanel(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onToggleAudio, onToggleVideo, onToggleRaiseHand]);
 
   const handleTogglePanel = (panelName) => {
     setActivePanel((current) => (current === panelName ? null : panelName));
@@ -264,6 +300,18 @@ export default function MeetingRoom({
         )}
       </div>
 
+      {/* Keyboard Shortcuts Guide Dialog */}
+      <ShortcutsModal
+        isOpen={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+      />
+
+      {/* Real-time Enterprise Toast Container */}
+      <ToastContainer
+        toasts={toasts}
+        onDismiss={onDismissToast}
+      />
+
       {/* Bottom Controls Bar */}
       <Controls
         roomId={roomId}
@@ -276,6 +324,8 @@ export default function MeetingRoom({
         activePanel={activePanel}
         showStats={showStats}
         roomSettings={roomSettings}
+        networkStats={networkStats}
+        micVolume={micVolume}
         onToggleAudio={onToggleAudio}
         onToggleVideo={onToggleVideo}
         onToggleScreenShare={onToggleScreenShare}
@@ -283,6 +333,7 @@ export default function MeetingRoom({
         onTogglePanel={handleTogglePanel}
         onToggleStats={() => setShowStats(!showStats)}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenShortcuts={() => setShowShortcuts(true)}
         onLeaveRoom={onLeaveRoom}
       />
     </div>

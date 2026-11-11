@@ -14,8 +14,11 @@ export default function Lobby({
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [previewStream, setPreviewStream] = useState(null);
+  const [audioLevel, setAudioLevel] = useState(0); // 0 to 100 for live mic meter
 
   const videoRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const animFrameRef = useRef(null);
 
   // Generate meeting code (e.g. abc-defg-hij)
   const generateRoomCode = () => {
@@ -52,6 +55,37 @@ export default function Lobby({
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
+
+        // Web Audio Analyser for live mic meter
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+          try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {
+              const audioCtx = new AudioCtx();
+              const analyser = audioCtx.createAnalyser();
+              analyser.fftSize = 256;
+              const source = audioCtx.createMediaStreamSource(new MediaStream([audioTrack]));
+              source.connect(analyser);
+              audioContextRef.current = audioCtx;
+
+              const dataArray = new Uint8Array(analyser.frequencyBinCount);
+              const updateLevel = () => {
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                  sum += dataArray[i];
+                }
+                const avg = sum / dataArray.length;
+                setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+                animFrameRef.current = requestAnimationFrame(updateLevel);
+              };
+              updateLevel();
+            }
+          } catch (e) {
+            console.warn('AudioContext in lobby:', e);
+          }
+        }
       })
       .catch((err) => {
         console.warn('Could not acquire preview stream:', err);
@@ -61,6 +95,12 @@ export default function Lobby({
     return () => {
       if (activeStream) {
         activeStream.getTracks().forEach((t) => t.stop());
+      }
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
       }
     };
   }, []);
@@ -265,6 +305,44 @@ export default function Lobby({
                 <span style={{ color: '#9EAB9D', fontSize: '14px', fontWeight: '500' }}>
                   Camera is turned off
                 </span>
+              </div>
+            )}
+
+            {/* Live Mic Audio Meter Pill */}
+            {!isAudioMuted && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '82px',
+                  backgroundColor: 'rgba(37, 43, 45, 0.88)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid #3A4245',
+                  borderRadius: '20px',
+                  padding: '5px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  zIndex: 5,
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.3)'
+                }}
+              >
+                <span style={{ fontSize: '11px', color: '#9EAB9D', fontWeight: '600', letterSpacing: '0.3px' }}>
+                  MIC LEVEL
+                </span>
+                <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '14px' }}>
+                  {[15, 30, 50, 70, 85].map((threshold, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        width: '3.5px',
+                        height: `${6 + idx * 2.2}px`,
+                        borderRadius: '2px',
+                        backgroundColor: audioLevel >= threshold ? '#9EAB9D' : 'rgba(158, 171, 157, 0.22)',
+                        transition: 'background-color 0.08s ease'
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
             )}
 
