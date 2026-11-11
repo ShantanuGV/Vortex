@@ -71,6 +71,7 @@ export function useWebRTC() {
   // Scalable pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pinnedPeerId, setPinnedPeerId] = useState(null);
   const [activeSpeakerId, setActiveSpeakerId] = useState(null);
   const [micVolume, setMicVolume] = useState(0); // 0 to 1 for live meter
 
@@ -304,15 +305,32 @@ export function useWebRTC() {
   const totalPages = Math.max(1, Math.ceil(peerList.length / pageSize));
 
   const visiblePeerIds = useMemo(() => {
+    const ids = new Set();
+
+    if (!isHost) {
+      // Star Topology: Non-host participants ONLY establish a WebRTC connection with the Host!
+      // This enforces the requirement: other participants only see the host and themselves,
+      // creating an ultra-lightweight 1-to-1 connection with zero lag.
+      if (hostId && roster[hostId]) {
+        ids.add(hostId);
+      }
+      return ids;
+    }
+
+    // Host connects to the visible page of participants + active speaker + pinned spotlight peer
     const startIndex = (currentPage - 1) * pageSize;
     const pageSlice = peerList.slice(startIndex, startIndex + pageSize);
-    const ids = new Set(pageSlice.map((p) => p.peerId));
+    pageSlice.forEach((p) => ids.add(p.peerId));
 
     if (activeSpeakerId && roster[activeSpeakerId]) {
       ids.add(activeSpeakerId);
     }
+    // Preserves pinned peer stream so spotlight is never lost when changing pages
+    if (pinnedPeerId && roster[pinnedPeerId]) {
+      ids.add(pinnedPeerId);
+    }
     return ids;
-  }, [peerList, currentPage, pageSize, activeSpeakerId, roster]);
+  }, [isHost, hostId, peerList, currentPage, pageSize, activeSpeakerId, pinnedPeerId, roster]);
 
   // Synchronize active WebRTC connections with visible page
   // Uses Deterministic Initiator (socket.id < peerId) to eliminate SDP glare collisions!
@@ -487,10 +505,31 @@ export function useWebRTC() {
       setHostId(newHostId);
       const amIHost = socket.id === newHostId;
       setIsHost(amIHost);
+
+      // Update roster so host badge and controls update immediately
+      setRoster((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((id) => {
+          if (id === newHostId) {
+            next[id] = { ...next[id], isHost: true, role: 'host' };
+          } else if (next[id].isHost) {
+            next[id] = { ...next[id], isHost: false, role: 'audience' };
+          }
+        });
+        return next;
+      });
+
       if (amIHost) {
         alert('You are now the meeting host.');
       } else {
-        console.log(`Host changed to ${newHostName}`);
+        console.log(`[Admin] Host changed to ${newHostName}`);
+      }
+    });
+
+    // When newly promoted to host, receive the current waiting list
+    socket.on('waiting-list-update', ({ waitingList }) => {
+      if (waitingList) {
+        setWaitingPeers(waitingList);
       }
     });
 
@@ -927,6 +966,8 @@ export function useWebRTC() {
     visiblePeerIds,
     activeSpeakerId,
     micVolume,
+    pinnedPeerId,
+    setPinnedPeerId,
     currentPage,
     totalPages,
     setCurrentPage,

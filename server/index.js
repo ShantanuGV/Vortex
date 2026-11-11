@@ -4,7 +4,10 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import os from 'os';
+import cluster from 'cluster';
 import { fileURLToPath } from 'url';
+import { setupWorker } from '@socket.io/sticky';
+import { createAdapter } from '@socket.io/cluster-adapter';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +36,12 @@ const io = new Server(server, {
   pingTimeout: 30000,
   maxHttpBufferSize: 1e6
 });
+
+// In cluster worker mode, hook cluster adapter & sticky worker
+if (!cluster.isPrimary) {
+  io.adapter(createAdapter());
+  setupWorker(io);
+}
 
 /**
  * High-Scale Room Data Structure with Admin / Host Control:
@@ -205,23 +214,45 @@ function admitParticipantToRoom(room, socket, { isAudioMuted = false, isVideoOff
   const allParticipants = Array.from(room.participants.values());
   const waitingList = isHost ? Array.from(room.waitingParticipants.values()) : [];
 
-  // Send full snapshot including host authority, room settings, and waiting list
+  // Privacy & Star-Topology:
+  // Host sees all participants and true count.
+  // Non-host participants only see the Host and themselves!
+  const visibleParticipants = isHost
+    ? allParticipants
+    : allParticipants.filter((p) => p.peerId === room.hostId || p.peerId === socket.id);
+
+  const visibleTotal = isHost ? room.participants.size : visibleParticipants.length;
+
   socket.emit('room-snapshot', {
     roomId: room.id,
     isHost,
     hostId: room.hostId,
     settings: room.settings,
-    totalParticipants: room.participants.size,
-    participants: allParticipants,
+    totalParticipants: visibleTotal,
+    participants: visibleParticipants,
     waitingList,
-    activeSpeakers: Array.from(room.activeSpeakers)
+    activeSpeakers: Array.from(room.activeSpeakers).filter(
+      (spkId) => isHost || spkId === room.hostId || spkId === socket.id
+    )
   });
 
-  // Notify other peers
-  queueDelta(room, {
-    type: 'user-joined',
-    participant: participantData
-  });
+  // Notify peers:
+  if (isHost) {
+    // If Host joined/reconnected, broadcast to all participants
+    queueDelta(room, {
+      type: 'user-joined',
+      participant: participantData
+    });
+  } else {
+    // Non-host joined: ONLY notify the host!
+    // Other audience members do NOT know or see this participant
+    if (room.hostId) {
+      io.to(room.hostId).emit('room-deltas', [{
+        type: 'user-joined',
+        participant: participantData
+      }]);
+    }
+  }
 }
 
 // --- Socket.IO Event Handlers with Authority Enforcement ---
@@ -700,6 +731,25 @@ io.on('connection', (socket) => {
     console.log(`[Signaling] Peer ${socket.userName} (${socket.id}) disconnected.`);
 
     if (room.participants.size === 0) {
+      // Host Admission Stranding Recovery:
+      // If host left and no other admitted participants exist, BUT users are waiting:
+      if (room.waitingParticipants.size > 0) {
+        const firstWaitingId = Array.from(room.waitingParticipants.keys())[0];
+        const firstWaiting = room.waitingParticipants.get(firstWaitingId);
+        const targetSocket = io.sockets.sockets.get(firstWaitingId);
+
+        if (targetSocket) {
+          room.hostId = firstWaitingId;
+          console.log(`[Admin] Room "${roomId}" had 0 participants but waiting users. Promoting ${firstWaiting.userName} (${firstWaitingId}) to Host!`);
+          admitParticipantToRoom(room, targetSocket, {
+            isAudioMuted: firstWaiting.isAudioMuted,
+            isVideoOff: firstWaiting.isVideoOff
+          });
+          return;
+        }
+      }
+
+      // If room is truly empty (0 participants and 0 waiting), clean up
       if (room.flushTimer) clearTimeout(room.flushTimer);
       rooms.delete(roomId);
       console.log(`[Signaling] Room "${roomId}" deleted (empty).`);
@@ -712,19 +762,47 @@ io.on('connection', (socket) => {
         if (newHost) {
           newHost.isHost = true;
           newHost.role = 'host';
+
+          // Broadcast host-changed notification to all participants
           io.to(roomId).emit('host-changed', {
             newHostId,
             newHostName: newHost.userName
           });
-          console.log(`[Admin] Host migrated to ${newHost.userName} (${newHostId}) in room "${roomId}"`);
+
+          // Queue roster delta so all clients update newHost role/badge immediately
+          queueDelta(room, {
+            type: 'peer-media-toggle',
+            peerId: newHostId,
+            isAudioMuted: newHost.isAudioMuted,
+            isVideoOff: newHost.isVideoOff,
+            role: 'host',
+            isHost: true
+          });
+
+          // Transfer active waiting list to the newly elected host!
+          const waitingList = Array.from(room.waitingParticipants.values());
+          io.to(newHostId).emit('waiting-list-update', { waitingList });
+
+          console.log(`[Admin] Host migrated to ${newHost.userName} (${newHostId}) with ${waitingList.length} waiting users in room "${roomId}"`);
         }
       }
 
-      queueDelta(room, {
-        type: 'user-left',
-        peerId: socket.id,
-        userName: socket.userName
-      });
+      // User-left delta broadcast:
+      if (socket.id === room.hostId) {
+        // If host left, notify all participants
+        queueDelta(room, {
+          type: 'user-left',
+          peerId: socket.id,
+          userName: socket.userName
+        });
+      } else if (room.hostId) {
+        // Non-host left: only notify host
+        io.to(room.hostId).emit('room-deltas', [{
+          type: 'user-left',
+          peerId: socket.id,
+          userName: socket.userName
+        }]);
+      }
     }
   });
 });
@@ -734,11 +812,19 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`=============================================================`);
-  console.log(`🚀 Scalable Google Meet Signaling Server running on port ${PORT}`);
-  console.log(`   Web App:         http://localhost:${PORT}`);
-  console.log(`   Admin Controls:  Active (Role-based permissions & policies)`);
-  console.log(`   Load Metrics:    http://localhost:${PORT}/api/metrics`);
-  console.log(`=============================================================`);
-});
+
+// In standalone mode, listen on PORT. In cluster worker mode, sticky master handles port routing.
+if (cluster.isPrimary) {
+  server.listen(PORT, () => {
+    console.log(`=============================================================`);
+    console.log(`🚀 Scalable VORTEX Signaling Server running on port ${PORT}`);
+    console.log(`   Web App:         http://localhost:${PORT}`);
+    console.log(`   Host Privacy:    Webinar Star-Topology active`);
+    console.log(`   Load Metrics:    http://localhost:${PORT}/api/metrics`);
+    console.log(`=============================================================`);
+  });
+} else {
+  server.listen(0, () => {
+    console.log(`[Worker ${process.pid}] VORTEX Signaling Worker online`);
+  });
+}

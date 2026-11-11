@@ -236,24 +236,26 @@ export default function Controls({
 
       {/* Right section: Panels and Extra Tools */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: '240px', justifyContent: 'flex-end' }}>
-        {/* Scale Telemetry HUD */}
-        <button
-          onClick={onToggleStats}
-          title="Scalability & bandwidth telemetry"
-          style={{
-            background: 'none',
-            border: 'none',
-            color: showStats ? '#9EAB9D' : '#C5CCC4',
-            cursor: 'pointer',
-            padding: '8px',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            transition: 'color 0.2s'
-          }}
-        >
-          <Activity size={22} />
-        </button>
+        {/* Scale Telemetry HUD - Host Only */}
+        {isHost && (
+          <button
+            onClick={onToggleStats}
+            title="Scalability & bandwidth telemetry"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: showStats ? '#9EAB9D' : '#C5CCC4',
+              cursor: 'pointer',
+              padding: '8px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'color 0.2s'
+            }}
+          >
+            <Activity size={22} />
+          </button>
+        )}
 
         {/* Meeting Info */}
         <button
@@ -277,7 +279,7 @@ export default function Controls({
         {/* Participants Panel */}
         <button
           onClick={() => onTogglePanel('people')}
-          title="Participants"
+          title={isHost ? 'Participants' : 'Meeting Host & You'}
           style={{
             background: 'none',
             border: 'none',
@@ -292,7 +294,8 @@ export default function Controls({
           }}
         >
           <Users size={22} />
-          {participantCount > 0 && (
+          {/* Only host sees total participant count */}
+          {isHost && participantCount > 0 && (
             <span
               style={{
                 position: 'absolute',

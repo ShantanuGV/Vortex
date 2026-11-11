@@ -1,77 +1,42 @@
-# Google Meet High-Scale WebRTC Architecture & REA Lab
+# VORTEX — Video Collaboration Platform
 
-A high-concurrency, clean-room reconstruction of the **Google Meet** video conferencing architecture using **REA (`morluto/rea`)**.
+A high-concurrency, host-moderated video collaboration platform reconstructed with **REA (`morluto/rea`)**.
 
-Engineered specifically to handle **large-scale calls (500+ participants per meeting across 10+ concurrent rooms = 5,000+ simultaneous connections)** on **minimal hardware with zero lag**.
-
----
-
-## ⚡ The Scalability Math: How 500+ Users Work Without Lag
-
-### 1. The Naive P2P Mesh Trap ($O(N^2)$)
-In a naive WebRTC mesh:
-- Number of streams = $N \times (N - 1)$
-- For $N = 500$, total streams = **249,500 connections**!
-- Each client would upload and decode 499 video streams requiring **~750 Mbps download** and crashing browser hardware decoders within seconds.
-
-### 2. The Google Meet Selective Subscription & SFU Solution ($O(N)$)
-This architecture employs **Zero-Transcoding Selective Forwarding & Grid Virtualization**:
-1. **Upload**: Each client uploads only **1 stream** (using simulcast layers: 720p / 360p / 180p).
-2. **Download (Selective Subscription)**:
-   - A display only shows 6 to 9 tiles per page.
-   - The client **only downloads and decodes video for the currently visible page** (6 tiles) and the active speaker.
-   - The remaining 490+ participants remain in the light-weight roster (names, mute status, hand-raised state), consuming **near-zero bandwidth**.
-   - Client bandwidth drops from 750 Mbps to **~2.5 Mbps** (**98.8% bandwidth & CPU savings**).
-3. **Voice Activity Detection (VAD) Auto-Promotion**:
-   - The server monitors vocal audio levels via Web Audio API analyzers.
-   - When any participant starts speaking, the server broadcasts an `active-speaker-change` delta.
-   - The client automatically moves the active speaker to the spotlight on Page 1 without manual switching.
-4. **Server Event-Loop Protection (50ms Delta Batching)**:
-   - When 500 users enter a room, unthrottled individual socket emissions choke Node's single-threaded event loop.
-   - The signaling server queues room state changes and flushes them in **50ms batched delta ticks** (`room-deltas`).
-5. **Multi-Worker Clustering (5,000+ Concurrent Connections)**:
-   - Utilizing Node.js `cluster` across the host's CPU cores (12 cores), distributing the connection load evenly across isolated worker threads.
+Engineered with a **Star-Mesh Architecture** ensuring host privacy, ultra-low client resource consumption, and host admission control.
 
 ---
 
-## 🏗️ Architecture Blueprint
+## ⚡ Architecture: Host-Moderated Star-Mesh Topology
 
-```
-[ Participant 1..500 (Browser) ]
-        │
-        ├── Upload: 1 WebRTC Stream (Webcam + Mic with VAD)
-        │
-        ├── Download: Selective Active Page (6 Video Tiles Max)
-        │   └── 98.8% Bandwidth/CPU Conservation
-        │
-        ▼ WebSocket (Compact 50ms Deltas)
-┌────────────────────────────────────────────────────────┐
-│               Primary Cluster Manager                  │
-│             Spawns Workers Across 12 Cores             │
-├──────────────────────────┬─────────────────────────────┤
-│ Worker Core 1            │ Worker Core 2..12           │
-│ • Room 1 (500 Peers)     │ • Room 2..10 (500 Peers ea) │
-│ • 50ms Batched Deltas    │ • 50ms Batched Deltas       │
-│ • VAD Speaker Broker     │ • VAD Speaker Broker        │
-│ • Zero Transcode Routing │ • Zero Transcode Routing    │
-└──────────────────────────┴─────────────────────────────┘
-```
+### 1. Privacy & Participant Isolation
+- **Host View**: The meeting Host sees all admitted participants, views the paginated participant grid (6 tiles per page), and has full visibility into total room attendance and the waiting room queue.
+- **Non-Host Audience View**: Regular participants **only see the Host and themselves**. They do not see other participants' video feeds and cannot view the roster of who else has joined or the total count.
+- **Client Resource Savings**: Because non-hosts maintain only **1 direct peer connection** (to the Host), client CPU and bandwidth consumption remain negligible even if hundreds of people join.
+
+### 2. Host Admission & Waiting Room
+- **Knocking Queue**: When host admission is active, joining guests enter the "Asking to join..." waiting room.
+- **Host Approval Controls**: The host receives a real-time banner with **[Admit]** and **[Deny]** controls, plus a dedicated waiting list in the participants panel.
+- **Failover & Stranding Protection**: If the host leaves with users still in the waiting room, the first waiting user is automatically promoted to Host and admitted, preventing stranded connections. When another participant is promoted, the active waiting list is seamlessly transferred to them.
+
+### 3. WebRTC Negotiation & Audio Stability
+- **Deterministic SDP Negotiation**: Uses socket ID comparison (`socket.id < peerId`) to eliminate SDP offer glare collisions when multiple users join simultaneously.
+- **Dedicated Remote Audio Elements**: Audio playback runs through independent `<audio autoPlay playsInline />` elements, and video elements remain mounted at `opacity: 0` when camera is off, preventing Chromium from suspending remote WebRTC audio decoding.
+- **Pinned Spotlight Persistence**: Pinned participant connections remain permanently subscribed across pagination changes.
+
+### 4. Cluster Mode with Multi-Core Synchronization
+- Uses `@socket.io/sticky` and `@socket.io/cluster-adapter` to distribute connections across multiple CPU worker processes while synchronizing signaling state across workers.
 
 ---
 
-## 🛠️ Implemented Features Checklist
+## 🛠️ Feature Summary
 
-- [x] **Pre-Join Green Room (Lobby)** with camera & mic preview.
-- [x] **Scalable Paginated Video Grid**: Supports 1 to 500+ participants with `< Prev` / `Next >` page navigation.
-- [x] **Voice Activity Detection (VAD)**: Real-time speaking detection with audio pulse wave indicators.
-- [x] **Active Speaker Dynamic Spotlight**: Auto-promotes talking participants into view.
-- [x] **Raise Hand Queue**: Interactive hand toggle with priority sorting in the participant roster.
-- [x] **Searchable Participant Directory**: Instant search across 500+ attendees, categorized into Speakers vs. Audience.
-- [x] **Scale & Telemetry HUD**: Live floating diagnostics showing total room count, active decoders, and bandwidth saved.
-- [x] **Keyboard Shortcuts**: `Ctrl + D` (Microphone mute/unmute), `Ctrl + E` (Camera toggle).
-- [x] **Screen Sharing**: Seamless track replacement via `getDisplayMedia`.
-- [x] **In-Call Real-Time Chat**: Integrated slide-out messaging panel.
-- [x] **Multi-Worker Clustering**: High-concurrency launcher (`server/cluster.js`) utilizing all host CPU cores.
+- [x] **Brand Identity**: VORTEX branding with `Playfair Display` serif typography, Deep Slate (`#252B2D`), Bone White (`#F4F3EF`), and Soft Sage Green (`#9EAB9D`) palette.
+- [x] **Host Admission / Waiting Room**: Full knock notification banner and approval controls.
+- [x] **Participant Privacy**: Non-hosts only see the host and self; participant counts and attendee lists are private to the host.
+- [x] **Host Moderation**: Individual participant mute, mute all, kick participant, lock room, and end meeting for all.
+- [x] **Audio/Video Stability**: Dedicated audio playback elements and glare-free deterministic negotiation.
+- [x] **Pinned Spotlight**: Pinned participants remain actively subscribed regardless of pagination.
+- [x] **Multi-Worker Clustering**: Integrated `@socket.io/sticky` master with cluster adapter.
 
 ---
 
@@ -79,27 +44,17 @@ This architecture employs **Zero-Transcoding Selective Forwarding & Grid Virtual
 
 ### Option A: Standard Single-Process Mode
 ```bash
-# Start backend server & frontend static bundle
-npm run server
+# Starts signaling server and serves the built web app
+npm start
 ```
-App will be accessible at: **http://localhost:5000**
+Accessible at: **http://localhost:5000**
 
-### Option B: High-Concurrency Cluster Mode (For 10+ Rooms & 5,000+ Users)
+### Option B: Cluster Multi-Worker Mode
 ```bash
-# Launches multi-worker cluster across all CPU cores
 cd server
 npm run start:cluster
 ```
 
-### Live Telemetry & Health Endpoints
+### Health & Metrics
 - **Health Check:** `http://localhost:5000/api/health`
 - **System Metrics & Load:** `http://localhost:5000/api/metrics`
-
----
-
-## 🧪 REA Audit
-Verify feature parity and reconstruction coverage against REA specifications:
-```bash
-npm run rea:doctor
-npm run rea:audit
-```

@@ -12,6 +12,9 @@ export default function MeetingRoom({
   userName,
   roomId,
   isHost,
+  hostId,
+  pinnedPeerId,
+  onSetPinnedPeerId = () => {},
   isAudioMuted,
   isVideoOff,
   isScreenSharing,
@@ -204,6 +207,9 @@ export default function MeetingRoom({
             localStream={localStream}
             userName={userName}
             isHost={isHost}
+            hostId={hostId}
+            pinnedId={pinnedPeerId}
+            onSetPinnedId={onSetPinnedPeerId}
             isAudioMuted={isAudioMuted}
             isVideoOff={isVideoOff}
             isScreenSharing={isScreenSharing}
@@ -234,6 +240,7 @@ export default function MeetingRoom({
           <ParticipantsPanel
             userName={userName}
             isHost={isHost}
+            hostId={hostId}
             isAudioMuted={isAudioMuted}
             isVideoOff={isVideoOff}
             isHandRaised={isHandRaised}

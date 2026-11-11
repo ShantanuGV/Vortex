@@ -26,10 +26,10 @@
     {
       "id": "SCALE-001",
       "category": "Scalability Architecture",
-      "title": "Selective Subscription & Grid Virtualization (500+ Peers per Room)",
-      "target_behavior": "Instead of full mesh O(N^2) where 500 peers crash browser decoders, client selectively subscribes only to visible tiles (6 per page) and active speaker, saving >98% CPU/bandwidth.",
+      "title": "Host-Broadcast Star Topology & Virtualized Host Viewport (Webinar Privacy Mode)",
+      "target_behavior": "Eliminates O(N^2) mesh scaling bottlenecks without an external SFU by enforcing a Host-Broadcast Star Topology. Non-host participants establish exactly 1 WebRTC connection (directly to the host) and are privacy-blinded from other participants. The host client uses paginated viewport virtualization (6 tiles per page) + active speaker + pinned peer, ensuring low client-side CPU/bandwidth.",
       "implementation_status": "IMPLEMENTED",
-      "evidence": "client/src/hooks/useWebRTC.js: visiblePeerIds calculation & paginated WebRTC peer connections",
+      "evidence": "client/src/hooks/useWebRTC.js (star-topology peer filtering), server/index.js (room-snapshot privacy filtering & targeted host-only deltas), verified via test-fixes.js",
       "verified": true
     },
     {
@@ -53,19 +53,19 @@
     {
       "id": "SCALE-004",
       "category": "Scalability Architecture",
-      "title": "Multi-Worker CPU Clustering (10+ Concurrent 500-Peer Rooms)",
-      "target_behavior": "Utilizes Node.js cluster module across host CPU cores (12 cores) to distribute 5,000+ WebSocket connections evenly with zero single-core lag.",
+      "title": "Multi-Worker CPU Clustering with Sticky Routing & Cluster Adapter",
+      "target_behavior": "Utilizes Node.js cluster module with @socket.io/sticky HTTP routing and @socket.io/cluster-adapter IPC signaling across CPU cores to balance WebSocket connections without in-memory state collisions.",
       "implementation_status": "IMPLEMENTED",
-      "evidence": "server/cluster.js: primary cluster manager spawning worker pool",
+      "evidence": "server/cluster.js (@socket.io/sticky primary/worker setup) & server/index.js (createAdapter cluster sync)",
       "verified": true
     },
     {
       "id": "ADMIN-001",
       "category": "Administration & Host Authority",
-      "title": "Host Role Assignment & Authority Enforcement",
-      "target_behavior": "First participant is assigned host authority with automatic failover if host disconnects; host commands are validated server-side.",
+      "title": "Host Role Assignment, Waiting Room Failover & Roster Sync",
+      "target_behavior": "First participant is assigned host authority. On host disconnect, server elects successor from admitted peers or promotes first waiting participant to prevent meeting stranding, transferring waiting list and broadcasting synchronized host-changed deltas.",
       "implementation_status": "IMPLEMENTED",
-      "evidence": "server/index.js: isHost assignment, update-room-settings authority check, host-changed handler",
+      "evidence": "server/index.js (disconnect failover, waitingList succession, peer-media-toggle delta), verified via test-fixes.js",
       "verified": true
     },
     {
@@ -152,10 +152,10 @@
     {
       "id": "UI-002",
       "category": "User Experience",
-      "title": "Adaptive Paginated Video Grid",
-      "target_behavior": "Dynamic grid layout with pagination controls (Prev/Next page) scaling seamlessly from 1 to 500+ participants.",
+      "title": "Dual-Layout Video Grid & Pinned Stream Persistence",
+      "target_behavior": "Dynamic dual-layout rendering: Host sees 6-tile-per-page grid with synchronized WebRTC subscriptions and spotlight/pinned peer retention; non-hosts see a privacy-focused Host + Self stage with zero visibility into other participants.",
       "implementation_status": "IMPLEMENTED",
-      "evidence": "client/src/components/VideoGrid.jsx",
+      "evidence": "client/src/components/VideoGrid.jsx, client/src/hooks/useWebRTC.js (pinnedPeerId & pageSize synchronization)",
       "verified": true
     },
     {

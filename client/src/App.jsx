@@ -17,6 +17,7 @@ export default function App() {
     micVolume,
     telemetry,
     isHost,
+    hostId,
     roomSettings,
     personalSettings,
     updateRoomSettings,
@@ -24,6 +25,8 @@ export default function App() {
     hostMutePeer,
     hostKickPeer,
     hostEndMeeting,
+    pinnedPeerId,
+    setPinnedPeerId,
     // Host Admission / Waiting Room
     isWaitingForAdmission,
     admissionStatus,
@@ -91,6 +94,9 @@ export default function App() {
           userName={userName}
           roomId={roomId}
           isHost={isHost}
+          hostId={hostId}
+          pinnedPeerId={pinnedPeerId}
+          onSetPinnedPeerId={setPinnedPeerId}
           isAudioMuted={isAudioMuted}
           isVideoOff={isVideoOff}
           isScreenSharing={isScreenSharing}

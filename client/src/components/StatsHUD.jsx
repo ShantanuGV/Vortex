@@ -47,13 +47,25 @@ export default function StatsHUD({ telemetry, activeSpeakerName, onClose }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>
-          <span style={{ color: '#8A9497' }}>Total Participants:</span>
-          <strong style={{ color: '#9EAB9D' }}>{telemetry.totalParticipants} in room</strong>
+          <span style={{ color: '#8A9497' }}>Architecture:</span>
+          <span style={{ color: '#9EAB9D', fontWeight: '600' }}>Star / Host-Broadcast</span>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>
-          <span style={{ color: '#8A9497' }}>Subscribed Streams:</span>
-          <strong>{telemetry.activeStreams} active video feeds</strong>
+          <span style={{ color: '#8A9497' }}>Your Role:</span>
+          <span style={{ color: '#F4F3EF', fontWeight: '600' }}>
+            {telemetry.isHost ? 'Meeting Host (Managing)' : 'Audience (Host Only)'}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>
+          <span style={{ color: '#8A9497' }}>Total in Room:</span>
+          <strong style={{ color: '#9EAB9D' }}>{telemetry.totalParticipants} participants</strong>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>
+          <span style={{ color: '#8A9497' }}>Active WebRTC Feeds:</span>
+          <strong>{telemetry.activeStreams} active feeds</strong>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #3A4245', paddingBottom: '6px' }}>

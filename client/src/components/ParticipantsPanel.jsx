@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { X, Mic, MicOff, Video, VideoOff, Hand, Search, ShieldCheck, UserX, UserPlus, Clock } from 'lucide-react';
+import { X, Mic, MicOff, Video, VideoOff, Hand, Search, ShieldCheck, UserX, Clock, Lock } from 'lucide-react';
 import { getParticipantColor } from '../utils/colors';
 
 export default function ParticipantsPanel({
   userName,
   isHost,
+  hostId,
   isAudioMuted,
   isVideoOff,
   isHandRaised,
@@ -38,6 +39,9 @@ export default function ParticipantsPanel({
   });
 
   const localColor = getParticipantColor(userName || 'You');
+  const hostPeer = (hostId && roster[hostId]) 
+    ? roster[hostId] 
+    : peerList.find((p) => p.isHost);
 
   return (
     <div
@@ -72,7 +76,7 @@ export default function ParticipantsPanel({
             margin: 0
           }}
         >
-          Participants ({totalCount})
+          {isHost ? `Participants (${totalCount})` : 'Host & You'}
         </h3>
         <button
           onClick={onClose}
@@ -92,7 +96,7 @@ export default function ParticipantsPanel({
         </button>
       </div>
 
-      {/* Host Controls Action Bar */}
+      {/* Host Controls Action Bar (Host only) */}
       {isHost && (
         <div
           style={{
@@ -247,36 +251,59 @@ export default function ParticipantsPanel({
         </div>
       )}
 
-      {/* Search Bar */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #3A4245' }}>
+      {/* Non-host Privacy Banner */}
+      {!isHost && (
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
+            margin: '12px 16px',
+            padding: '10px 14px',
             backgroundColor: '#2E3538',
             border: '1px solid #3A4245',
-            borderRadius: '24px',
-            padding: '8px 14px',
+            borderRadius: '10px',
+            fontSize: '12px',
+            color: '#9EAB9D',
+            display: 'flex',
+            alignItems: 'center',
             gap: '8px'
           }}
         >
-          <Search size={16} color="#9EAB9D" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search for people"
-            style={{
-              backgroundColor: 'transparent',
-              border: 'none',
-              color: '#F4F3EF',
-              fontSize: '13px',
-              outline: 'none',
-              width: '100%'
-            }}
-          />
+          <Lock size={15} />
+          <span>Participant list is private to the meeting host.</span>
         </div>
-      </div>
+      )}
+
+      {/* Search Bar (Host only) */}
+      {isHost && (
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #3A4245' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: '#2E3538',
+              border: '1px solid #3A4245',
+              borderRadius: '24px',
+              padding: '8px 14px',
+              gap: '8px'
+            }}
+          >
+            <Search size={16} color="#9EAB9D" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search for people"
+              style={{
+                backgroundColor: 'transparent',
+                border: 'none',
+                color: '#F4F3EF',
+                fontSize: '13px',
+                outline: 'none',
+                width: '100%'
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Participants List */}
       <div
@@ -289,7 +316,55 @@ export default function ParticipantsPanel({
           gap: '8px'
         }}
       >
-        {/* Local User */}
+        {/* If non-host, display Meeting Host first (if present) */}
+        {!isHost && hostPeer && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 12px',
+              borderRadius: '10px',
+              backgroundColor: '#2E3538',
+              border: '1px solid #3A4245'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: getParticipantColor(hostPeer.userName || hostPeer.peerId),
+                  color: '#252B2D',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: '700',
+                  fontSize: '15px'
+                }}
+              >
+                {hostPeer.userName ? hostPeer.userName.charAt(0).toUpperCase() : 'H'}
+              </div>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: '600', color: '#F4F3EF' }}>
+                  {hostPeer.userName}
+                </div>
+                <div style={{ fontSize: '11px', color: '#9EAB9D', marginTop: '2px' }}>
+                  Meeting host
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#8A9497' }}>
+              {hostPeer.isHandRaised && <Hand size={18} color="#E5A967" />}
+              {hostPeer.isAudioMuted ? <MicOff size={18} color="#EA4335" /> : <Mic size={18} color="#9EAB9D" />}
+              {hostPeer.isVideoOff ? <VideoOff size={18} color="#EA4335" /> : <Video size={18} color="#9EAB9D" />}
+            </div>
+          </div>
+        )}
+
+        {/* Local User (You) */}
         <div
           style={{
             display: 'flex',
@@ -349,8 +424,8 @@ export default function ParticipantsPanel({
           </div>
         </div>
 
-        {/* Remote Peers */}
-        {sortedPeers.map((peer) => {
+        {/* Remote Peers (Host view only) */}
+        {isHost && sortedPeers.map((peer) => {
           const peerColor = getParticipantColor(peer.userName || peer.peerId);
           return (
             <div
@@ -398,7 +473,7 @@ export default function ParticipantsPanel({
                 {peer.isVideoOff ? <VideoOff size={18} color="#EA4335" /> : <Video size={18} color="#9EAB9D" />}
 
                 {/* Host individual participant controls */}
-                {isHost && !peer.isHost && (
+                {!peer.isHost && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
                     {/* Individual Mute Peer Button */}
                     {!peer.isAudioMuted && (
