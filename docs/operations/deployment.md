@@ -68,3 +68,4 @@ For public Internet deployments, ensure firewall access for:
 1. **Signaling Port**: `TCP 5000` (or `443` via reverse proxy)
 2. **WebRTC Media Port Range**: `UDP 40000–49999`
 3. **Environment Setup**: Set `MEDIASOUP_ANNOUNCED_IP` to the public Elastic IP or external WAN address of the media host.
+

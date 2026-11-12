@@ -10,6 +10,8 @@ export default function App() {
     localStream,
     roster,
     remoteStreams,
+    remoteScreenStreams,
+    pageSize,
     currentPage,
     totalPages,
     setCurrentPage,
@@ -106,6 +108,8 @@ export default function App() {
           isHandRaised={isHandRaised}
           roster={roster}
           remoteStreams={remoteStreams}
+          remoteScreenStreams={remoteScreenStreams}
+          pageSize={pageSize}
           currentPage={currentPage}
           totalPages={totalPages}
           setCurrentPage={setCurrentPage}

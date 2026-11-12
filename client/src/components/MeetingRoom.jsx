@@ -23,6 +23,8 @@ export default function MeetingRoom({
   isHandRaised,
   roster,
   remoteStreams,
+  remoteScreenStreams = {},
+  pageSize = 6,
   currentPage,
   totalPages,
   setCurrentPage,
@@ -252,6 +254,8 @@ export default function MeetingRoom({
             isHandRaised={isHandRaised}
             roster={roster}
             remoteStreams={remoteStreams}
+            remoteScreenStreams={remoteScreenStreams}
+            pageSize={pageSize}
             currentPage={currentPage}
             totalPages={totalPages}
             onPageChange={setCurrentPage}

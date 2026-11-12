@@ -54,6 +54,12 @@ export class SessionManager {
     const session = await this.state.get(`session:${peerId}`);
     if (!session) return;
 
+    // Clear any previous active grace timer for this peer (ARCH-010)
+    if (this.graceTimers.has(peerId)) {
+      clearTimeout(this.graceTimers.get(peerId));
+      this.graceTimers.delete(peerId);
+    }
+
     session.connectionState = 'disconnected_grace';
     session.lastSeenAt = Date.now();
     await this.state.set(`session:${peerId}`, session, 3600);
@@ -134,3 +140,4 @@ export class SessionManager {
     return peers.length;
   }
 }
+

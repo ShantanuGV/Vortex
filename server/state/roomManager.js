@@ -32,6 +32,18 @@ export class RoomManager {
       // Allocate or fetch Mediasoup Router for room
       const { router, workerIndex, workerPid } = await this.routerAllocator.getOrCreateRoomRouter(roomId);
 
+      // Create Mediasoup AudioLevelObserver for server-side C++ VAD (ARCH-007)
+      let audioLevelObserver = null;
+      try {
+        audioLevelObserver = await router.createAudioLevelObserver({
+          maxEntries: 1,
+          threshold: -80,
+          interval: 800
+        });
+      } catch (obsErr) {
+        console.warn(`[RoomManager] AudioLevelObserver unavailable:`, obsErr.message);
+      }
+
       // Fetch or initialize distributed metadata
       let meta = await this.state.get(`room:${roomId}:meta`);
       if (!meta) {
@@ -67,6 +79,7 @@ export class RoomManager {
         pendingDeltas: [],
         flushTimer: null,
         createdAt: meta.createdAt,
+        audioLevelObserver, // Mediasoup C++ AudioLevelObserver
         // Mediasoup local structures:
         transports: new Map(), // transportId -> WebRtcTransport
         producers: new Map(),  // producerId -> { producer, peerId, kind, appData }
@@ -125,6 +138,10 @@ export class RoomManager {
       room.flushTimer = null;
     }
 
+    if (room.audioLevelObserver && !room.audioLevelObserver.closed) {
+      try { room.audioLevelObserver.close(); } catch {}
+    }
+
     // Release router
     this.routerAllocator.releaseRoomRouter(roomId);
 
@@ -136,3 +153,4 @@ export class RoomManager {
     console.log(`[RoomManager] Room "${roomId}" completely destroyed.`);
   }
 }
+

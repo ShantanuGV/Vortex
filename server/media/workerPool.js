@@ -178,3 +178,4 @@ export class WorkerPool {
     this.isInitialized = false;
   }
 }
+

@@ -70,3 +70,4 @@ When a participant experiences a network interruption or socket drop:
    - The grace timer is immediately cancelled.
    - The participant is re-anchored to the room roster without losing host authority or triggering knock prompts.
 4. If the timer expires without reconnection, stale resources and session keys are purged.
+

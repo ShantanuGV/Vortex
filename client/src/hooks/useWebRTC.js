@@ -14,6 +14,7 @@ export function useWebRTC() {
   const [localStream, setLocalStream] = useState(null);
   const [roster, setRoster] = useState({});
   const [remoteStreams, setRemoteStreams] = useState({});
+  const [remoteScreenStreams, setRemoteScreenStreams] = useState({}); // Dedicated screen streams (BUG-005)
 
   // Authority & Meeting Settings (Admin controls)
   const [isHost, setIsHost] = useState(false);
@@ -113,8 +114,10 @@ export function useWebRTC() {
   const sendTransportRef = useRef(null);
   const recvTransportRef = useRef(null);
   const producersRef = useRef(new Map()); // 'audio' | 'video' | 'screen' -> Producer
-  const consumersRef = useRef(new Map()); // consumerId -> { consumer, peerId, kind, producerId }
-  const peerMediaStreamsRef = useRef(new Map()); // peerId -> MediaStream (STABLE: tracks updated in-place)
+  const consumersRef = useRef(new Map()); // consumerId -> { consumer, peerId, kind, producerId, appData }
+  const peerMediaStreamsRef = useRef(new Map()); // peerId -> MediaStream (STABLE: camera & mic)
+  const peerScreenStreamsRef = useRef(new Map()); // peerId -> MediaStream (STABLE: dedicated screen share - BUG-005)
+  const consumingProducersRef = useRef(new Set()); // In-flight consume guards to eliminate race conditions (BUG-002)
   const pendingProducersQueue = useRef([]); // Producer payloads queued before recvTransport is ready
   const localStreamRef = useRef(null);
   const screenTrackRef = useRef(null);
@@ -184,7 +187,7 @@ export function useWebRTC() {
     }
   }, [personalSettings]);
 
-  // Voice Activity Detection (VAD) & Live Mic Volume Meter
+  // Voice Activity Detection (VAD) & Live Mic Volume Meter (BUG-006 & BUG-007)
   const startVAD = useCallback((stream) => {
     if (!stream || stream.getAudioTracks().length === 0) return;
 
@@ -192,8 +195,22 @@ export function useWebRTC() {
       if (audioContextRef.current) {
         audioContextRef.current.close().catch(() => {});
       }
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const audioCtx = new AudioCtx();
       audioContextRef.current = audioCtx;
+
+      // Resume AudioContext if suspended (Chrome autoplay policy - BUG-007)
+      const ensureAudioResumed = () => {
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume().catch(() => {});
+        }
+      };
+      ensureAudioResumed();
+      window.addEventListener('click', ensureAudioResumed, { once: true });
+      window.addEventListener('keydown', ensureAudioResumed, { once: true });
+      window.addEventListener('touchstart', ensureAudioResumed, { once: true });
+
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
@@ -202,7 +219,13 @@ export function useWebRTC() {
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
 
+      let lastSpeakingState = false;
+      let lastEmitTime = 0;
+
       vadIntervalRef.current = setInterval(() => {
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume().catch(() => {});
+        }
         analyser.getByteFrequencyData(dataArray);
         let sum = 0;
         for (let i = 0; i < dataArray.length; i++) {
@@ -215,8 +238,14 @@ export function useWebRTC() {
 
         if (!socketRef.current || isAudioMuted) return;
 
-        if (normalized > 0.15) {
-          socketRef.current.emit('speaking-level', { level: normalized });
+        const isSpeaking = normalized > 0.15;
+        const now = Date.now();
+
+        // Throttle VAD socket emissions: emit immediately on transition, and at most once per 300ms during continuous speech (BUG-006)
+        if (isSpeaking !== lastSpeakingState || (isSpeaking && now - lastEmitTime > 300)) {
+          lastSpeakingState = isSpeaking;
+          lastEmitTime = now;
+          socketRef.current.emit('speaking-level', { level: isSpeaking ? normalized : 0 });
         }
       }, 100);
     } catch (e) {
@@ -234,16 +263,18 @@ export function useWebRTC() {
     const recvTransport = recvTransportRef.current;
     const socket = socketRef.current;
 
-    if (!device || !recvTransport || !socket) {
+    if (!device || !recvTransport || !socket || recvTransport.closed) {
       // Queue producer for consumption as soon as recvTransport initializes
       pendingProducersQueue.current.push({ producerId, producerPeerId, kind, appData });
       return;
     }
 
-    // Guard against duplicate consumption of the same producer
+    // Guard against in-flight & duplicate consumption of the same producer (BUG-002)
+    if (consumingProducersRef.current.has(producerId)) return;
     for (const item of consumersRef.current.values()) {
       if (item.producerId === producerId) return;
     }
+    consumingProducersRef.current.add(producerId);
 
     socket.emit('consume', {
       transportId: recvTransport.id,
@@ -251,6 +282,7 @@ export function useWebRTC() {
       rtpCapabilities: device.rtpCapabilities
     }, async (response) => {
       if (response?.error) {
+        consumingProducersRef.current.delete(producerId);
         console.warn(`[Mediasoup] Consume rejected for producer ${producerId}:`, response.error);
         return;
       }
@@ -268,42 +300,76 @@ export function useWebRTC() {
           consumer,
           peerId: producerPeerId,
           producerId: pId,
-          kind: cKind
+          kind: cKind,
+          appData
         });
 
-        // STABLE TRACK STORAGE: Store track in stable MediaStream outside React render loop
-        let stream = peerMediaStreamsRef.current.get(producerPeerId);
-        if (!stream) {
-          stream = new MediaStream();
-          peerMediaStreamsRef.current.set(producerPeerId, stream);
-        }
+        const isScreen = appData?.mediaType === 'screen';
 
-        // Replace any prior track of the same kind to prevent track stacking
-        stream.getTracks().forEach((existingTrack) => {
-          if (existingTrack.kind === consumer.track.kind) {
-            stream.removeTrack(existingTrack);
+        if (isScreen) {
+          // DEDICATED SCREEN SHARE STREAM (BUG-005)
+          let screenStream = peerScreenStreamsRef.current.get(producerPeerId);
+          if (!screenStream) {
+            screenStream = new MediaStream();
+            peerScreenStreamsRef.current.set(producerPeerId, screenStream);
           }
-        });
-        stream.addTrack(consumer.track);
+          screenStream.getTracks().forEach((t) => screenStream.removeTrack(t));
+          screenStream.addTrack(consumer.track);
 
-        // Resume consumer on the SFU (consumers are created paused by default)
-        socket.emit('resumeConsumer', { consumerId: consumer.id });
+          socket.emit('resumeConsumer', { consumerId: consumer.id });
 
-        // Update React remoteStreams state reference
-        setRemoteStreams((prev) => ({
-          ...prev,
-          [producerPeerId]: stream
-        }));
+          setRemoteScreenStreams((prev) => ({
+            ...prev,
+            [producerPeerId]: screenStream
+          }));
+        } else {
+          // CAMERA & MIC STABLE TRACK STORAGE
+          let stream = peerMediaStreamsRef.current.get(producerPeerId);
+          if (!stream) {
+            stream = new MediaStream();
+            peerMediaStreamsRef.current.set(producerPeerId, stream);
+          }
+
+          // Replace any prior track of the same kind to prevent track stacking
+          stream.getTracks().forEach((existingTrack) => {
+            if (existingTrack.kind === consumer.track.kind) {
+              stream.removeTrack(existingTrack);
+            }
+          });
+          stream.addTrack(consumer.track);
+
+          // Resume consumer on the SFU
+          socket.emit('resumeConsumer', { consumerId: consumer.id });
+
+          // Update React remoteStreams state reference
+          setRemoteStreams((prev) => ({
+            ...prev,
+            [producerPeerId]: stream
+          }));
+        }
 
         consumer.on('transportclose', () => {
           consumersRef.current.delete(consumer.id);
+          consumingProducersRef.current.delete(pId);
         });
 
         consumer.on('trackended', () => {
-          stream.removeTrack(consumer.track);
-          setRemoteStreams((prev) => ({ ...prev, [producerPeerId]: stream }));
+          if (isScreen) {
+            const sStream = peerScreenStreamsRef.current.get(producerPeerId);
+            if (sStream) {
+              sStream.removeTrack(consumer.track);
+              setRemoteScreenStreams((prev) => ({ ...prev, [producerPeerId]: sStream }));
+            }
+          } else {
+            const cStream = peerMediaStreamsRef.current.get(producerPeerId);
+            if (cStream) {
+              cStream.removeTrack(consumer.track);
+              setRemoteStreams((prev) => ({ ...prev, [producerPeerId]: cStream }));
+            }
+          }
         });
       } catch (err) {
+        consumingProducersRef.current.delete(producerId);
         console.error('[Mediasoup] Error finalizing consumer:', err);
       }
     });
@@ -390,7 +456,10 @@ export function useWebRTC() {
               return reject(new Error(sendParams.error));
             }
 
-            const sendTransport = device.createSendTransport(sendParams);
+            const sendTransport = device.createSendTransport({
+              ...sendParams,
+              iceServers: sendParams.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
 
             sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
               socket.emit('connectWebRtcTransport', { transportId: sendTransport.id, dtlsParameters }, (res) => {
@@ -406,10 +475,22 @@ export function useWebRTC() {
               });
             });
 
-            sendTransport.on('connectionstatechange', (state) => {
+            sendTransport.on('connectionstatechange', async (state) => {
               console.log(`[Mediasoup] Send transport state: ${state}`);
               if (state === 'connected') {
                 addToast('Uplink SFU transport established.', 'success', 2000);
+              } else if (state === 'failed' || state === 'disconnected') {
+                console.warn(`[Mediasoup] Send transport ${state}, triggering ICE restart...`);
+                socket.emit('restartIce', { transportId: sendTransport.id }, async (res) => {
+                  if (res?.iceParameters) {
+                    try {
+                      await sendTransport.restartIce({ iceParameters: res.iceParameters });
+                      console.log('[Mediasoup] Send transport ICE restarted successfully');
+                    } catch (e) {
+                      console.error('[Mediasoup] Error applying restartIce to sendTransport:', e);
+                    }
+                  }
+                });
               }
             });
 
@@ -421,7 +502,10 @@ export function useWebRTC() {
                 return reject(new Error(recvParams.error));
               }
 
-              const recvTransport = device.createRecvTransport(recvParams);
+              const recvTransport = device.createRecvTransport({
+                ...recvParams,
+                iceServers: recvParams.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }]
+              });
 
               recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
                 socket.emit('connectWebRtcTransport', { transportId: recvTransport.id, dtlsParameters }, (res) => {
@@ -430,10 +514,22 @@ export function useWebRTC() {
                 });
               });
 
-              recvTransport.on('connectionstatechange', (state) => {
+              recvTransport.on('connectionstatechange', async (state) => {
                 console.log(`[Mediasoup] Recv transport state: ${state}`);
                 if (state === 'connected') {
                   addToast('Downlink SFU transport established.', 'success', 2000);
+                } else if (state === 'failed' || state === 'disconnected') {
+                  console.warn(`[Mediasoup] Recv transport ${state}, triggering ICE restart...`);
+                  socket.emit('restartIce', { transportId: recvTransport.id }, async (res) => {
+                    if (res?.iceParameters) {
+                      try {
+                        await recvTransport.restartIce({ iceParameters: res.iceParameters });
+                        console.log('[Mediasoup] Recv transport ICE restarted successfully');
+                      } catch (e) {
+                        console.error('[Mediasoup] Error applying restartIce to recvTransport:', e);
+                      }
+                    }
+                  });
                 }
               });
 
@@ -664,6 +760,7 @@ export function useWebRTC() {
     // Mediasoup Producer Closed
     socket.on('producer-closed', ({ producerId, peerId }) => {
       console.log(`[Mediasoup] Producer ${producerId} closed by peer ${peerId}`);
+      consumingProducersRef.current.delete(producerId);
       let targetConsumerId = null;
       consumersRef.current.forEach((val, cId) => {
         if (val.producerId === producerId) {
@@ -677,19 +774,82 @@ export function useWebRTC() {
           try { item.consumer.close(); } catch {}
           consumersRef.current.delete(targetConsumerId);
 
-          const stream = peerMediaStreamsRef.current.get(peerId);
-          if (stream) {
-            stream.getTracks().forEach((track) => {
-              if (track.kind === item.kind) {
-                stream.removeTrack(track);
-              }
+          if (item.appData?.mediaType === 'screen') {
+            const screenStream = peerScreenStreamsRef.current.get(peerId);
+            if (screenStream) {
+              screenStream.getTracks().forEach((track) => track.stop());
+              peerScreenStreamsRef.current.delete(peerId);
+            }
+            setRemoteScreenStreams((prev) => {
+              const copy = { ...prev };
+              delete copy[peerId];
+              return copy;
             });
-            setRemoteStreams((prev) => ({
-              ...prev,
-              [peerId]: stream
-            }));
+          } else {
+            const stream = peerMediaStreamsRef.current.get(peerId);
+            if (stream) {
+              stream.getTracks().forEach((track) => {
+                if (track.kind === item.kind) {
+                  stream.removeTrack(track);
+                }
+              });
+              setRemoteStreams((prev) => ({
+                ...prev,
+                [peerId]: stream
+              }));
+            }
           }
         }
+      }
+    });
+
+    // SFU Worker Crash Automated Failover Handshake (BUG-001 / ARCH-002)
+    socket.on('sfu-reconnect-needed', async ({ reason }) => {
+      console.warn('[Mediasoup] Media router failover event received. Rebuilding SFU transports...', reason);
+      addToast(reason || 'Media server re-routing stream transports...', 'warning', 3500);
+
+      try {
+        if (sendTransportRef.current && !sendTransportRef.current.closed) {
+          try { sendTransportRef.current.close(); } catch {}
+          sendTransportRef.current = null;
+        }
+        if (recvTransportRef.current && !recvTransportRef.current.closed) {
+          try { recvTransportRef.current.close(); } catch {}
+          recvTransportRef.current = null;
+        }
+        producersRef.current.clear();
+        consumersRef.current.forEach(({ consumer }) => {
+          try { consumer.close(); } catch {}
+        });
+        consumersRef.current.clear();
+        consumingProducersRef.current.clear();
+
+        peerMediaStreamsRef.current.forEach((st) => {
+          st.getTracks().forEach((t) => t.stop());
+        });
+        peerMediaStreamsRef.current.clear();
+
+        peerScreenStreamsRef.current.forEach((st) => {
+          st.getTracks().forEach((t) => t.stop());
+        });
+        peerScreenStreamsRef.current.clear();
+
+        setRemoteStreams({});
+        setRemoteScreenStreams({});
+
+        // Reinitialize device & transports with active stream
+        await initMediasoupSession(socket, localStreamRef.current, isAudioMuted, isVideoOff);
+
+        // Fetch current active producers on the newly allocated router
+        socket.emit('get-existing-producers', (res) => {
+          if (res?.producers && Array.isArray(res.producers)) {
+            res.producers.forEach((item) => consumeProducer(item));
+          }
+        });
+
+        addToast('Media connection re-established.', 'success', 2500);
+      } catch (err) {
+        console.error('[Mediasoup] Automatic SFU failover reconnection error:', err);
       }
     });
 
@@ -760,7 +920,14 @@ export function useWebRTC() {
           if (id === newHostId) {
             next[id] = { ...next[id], isHost: true, role: 'host' };
           } else if (next[id].isHost) {
-            next[id] = { ...next[id], isHost: false, role: 'audience' };
+            // Restore previous host's role based on their media state rather than forcing 'audience' (BUG-004)
+            const wasMuted = next[id].isAudioMuted;
+            const wasVideoOff = next[id].isVideoOff;
+            next[id] = {
+              ...next[id],
+              isHost: false,
+              role: wasMuted && wasVideoOff ? 'audience' : 'speaker'
+            };
           }
         });
         return next;
@@ -809,14 +976,25 @@ export function useWebRTC() {
           } else if (delta.type === 'user-left') {
             delete next[delta.peerId];
 
-            // Clean up leaving peer's stream
+            // Clean up leaving peer's camera/mic stream
             const stream = peerMediaStreamsRef.current.get(delta.peerId);
             if (stream) {
               stream.getTracks().forEach((t) => t.stop());
               peerMediaStreamsRef.current.delete(delta.peerId);
             }
+            // Clean up leaving peer's screen share stream (BUG-005)
+            const sStream = peerScreenStreamsRef.current.get(delta.peerId);
+            if (sStream) {
+              sStream.getTracks().forEach((t) => t.stop());
+              peerScreenStreamsRef.current.delete(delta.peerId);
+            }
             setRemoteStreams((prevStreams) => {
               const copy = { ...prevStreams };
+              delete copy[delta.peerId];
+              return copy;
+            });
+            setRemoteScreenStreams((prevScreens) => {
+              const copy = { ...prevScreens };
               delete copy[delta.peerId];
               return copy;
             });
@@ -1163,6 +1341,12 @@ export function useWebRTC() {
     });
     peerMediaStreamsRef.current.clear();
 
+    peerScreenStreamsRef.current.forEach((stream) => {
+      stream.getTracks().forEach((t) => t.stop());
+    });
+    peerScreenStreamsRef.current.clear();
+    consumingProducersRef.current.clear();
+
     // Stop local media
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -1192,6 +1376,7 @@ export function useWebRTC() {
     setLocalStream(null);
     setRoster({});
     setRemoteStreams({});
+    setRemoteScreenStreams({});
     setIsConnected(false);
     setRoomId(null);
     setIsScreenSharing(false);
@@ -1229,6 +1414,19 @@ export function useWebRTC() {
     return ids;
   }, [isHost, hostId, peerList, currentPage, pageSize, activeSpeakerId, pinnedPeerId, roster]);
 
+  // Emit subscription engine updates for dynamic layer allocation (ISSUE-011 / ARCH-003)
+  useEffect(() => {
+    if (!socketRef.current || !isConnected) return;
+    const timer = setTimeout(() => {
+      socketRef.current?.emit('update-subscription-preferences', {
+        pinnedPeerId,
+        visiblePeerIds: Array.from(visiblePeerIds),
+        networkQuality: networkStats.quality
+      });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [visiblePeerIds, pinnedPeerId, networkStats.quality, isConnected]);
+
   const telemetry = useMemo(() => {
     const totalParticipants = 1 + Object.keys(roster).length;
     const activeStreams = Object.keys(remoteStreams).length;
@@ -1251,6 +1449,8 @@ export function useWebRTC() {
     localStream,
     roster,
     remoteStreams,
+    remoteScreenStreams,
+    pageSize,
     visiblePeerIds,
     activeSpeakerId,
     micVolume,

@@ -13,6 +13,33 @@ export class DistributedState {
     this.store = new Map(); // key -> value
     this.ttls = new Map();  // key -> expirationTimestamp
     this.locks = new Map(); // lockKey -> { token, expiresAt }
+
+    // Proactive background sweep of expired locks & keys
+    this._startSweeper();
+  }
+
+  /**
+   * Periodic garbage collection for expired in-memory locks & keys (ARCH-008 / ISSUE-015)
+   */
+  _startSweeper(intervalMs = 60000) {
+    this._sweeper = setInterval(() => {
+      const now = Date.now();
+      for (const [key, lock] of this.locks.entries()) {
+        if (lock.expiresAt <= now) {
+          this.locks.delete(key);
+        }
+      }
+      for (const [key, expiry] of this.ttls.entries()) {
+        if (expiry <= now) {
+          this.store.delete(key);
+          this.ttls.delete(key);
+        }
+      }
+    }, intervalMs);
+
+    if (this._sweeper.unref) {
+      this._sweeper.unref();
+    }
   }
 
   /**

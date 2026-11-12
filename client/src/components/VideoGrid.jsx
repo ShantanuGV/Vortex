@@ -15,6 +15,8 @@ export default function VideoGrid({
   isHandRaised,
   roster,
   remoteStreams,
+  remoteScreenStreams = {},
+  pageSize = 6,
   currentPage,
   totalPages,
   onPageChange,
@@ -34,7 +36,7 @@ export default function VideoGrid({
   const allPeers = Object.values(roster);
   const totalCount = 1 + allPeers.length;
 
-  const PAGE_SIZE = 6;
+  const PAGE_SIZE = pageSize || 6;
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const pagePeers = allPeers.slice(startIndex, startIndex + PAGE_SIZE);
 
@@ -47,7 +49,9 @@ export default function VideoGrid({
     const hostPeer = (hostId && roster[hostId]) 
       ? roster[hostId] 
       : allPeers.find((p) => p.isHost);
-    const hostStream = hostPeer ? remoteStreams[hostPeer.peerId] : null;
+    const hostCameraStream = hostPeer ? remoteStreams[hostPeer.peerId] : null;
+    const hostScreenStream = hostPeer ? remoteScreenStreams[hostPeer.peerId] : null;
+    const isHostScreenSharing = Boolean(hostScreenStream);
 
     return (
       <div
@@ -90,11 +94,27 @@ export default function VideoGrid({
           </div>
         )}
 
-        {/* Primary Stage: The Meeting Host */}
+        {/* Primary Stage: The Meeting Host (Camera or Screen Share) */}
         <div style={{ flex: 1, height: '100%', minWidth: 0, position: 'relative' }}>
-          {hostPeer ? (
+          {isHostScreenSharing && hostPeer ? (
             <VideoTile
-              stream={hostStream}
+              stream={hostScreenStream}
+              userName={`${hostPeer.userName} (Presentation)`}
+              peerId={`screen-${hostPeer.peerId}`}
+              isAudioMuted={false}
+              isVideoOff={false}
+              isLocal={false}
+              isScreenSharing={true}
+              isHandRaised={false}
+              isSpeaking={false}
+              isHost={true}
+              isPinned={true}
+              onPin={() => {}}
+              onMutePeer={() => {}}
+            />
+          ) : hostPeer ? (
+            <VideoTile
+              stream={hostCameraStream}
               userName={hostPeer.userName}
               peerId={hostPeer.peerId}
               isAudioMuted={hostPeer.isAudioMuted}
@@ -150,7 +170,7 @@ export default function VideoGrid({
           )}
         </div>
 
-        {/* Self View (You) - Right Column / Picture-in-Picture */}
+        {/* Self View & Host Camera (if screen sharing) - Right Column */}
         <div
           style={{
             width: '320px',
@@ -161,6 +181,25 @@ export default function VideoGrid({
             flexShrink: 0
           }}
         >
+          {isHostScreenSharing && hostPeer && (
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <VideoTile
+                stream={hostCameraStream}
+                userName={hostPeer.userName}
+                peerId={hostPeer.peerId}
+                isAudioMuted={hostPeer.isAudioMuted}
+                isVideoOff={hostPeer.isVideoOff}
+                isLocal={false}
+                isScreenSharing={false}
+                isHandRaised={hostPeer.isHandRaised}
+                isSpeaking={activeSpeakerId === hostPeer.peerId}
+                isHost={true}
+                isPinned={false}
+                onPin={() => {}}
+                onMutePeer={() => {}}
+              />
+            </div>
+          )}
           <div style={{ flex: 1, minHeight: 0 }}>
             <VideoTile
               stream={localStream}
@@ -187,11 +226,33 @@ export default function VideoGrid({
   // The host sees all participants, with pagination, spotlight, and controls.
   // --------------------------------------------------------------------------
 
+  // Detect any active screen share
+  const activeScreenSharePeerId = Object.keys(remoteScreenStreams).find(
+    (id) => remoteScreenStreams[id] && remoteScreenStreams[id].getVideoTracks().length > 0
+  );
+
+  const effectivePinnedId = pinnedId || (activeScreenSharePeerId ? `screen-${activeScreenSharePeerId}` : null);
+
   // Spotlight layout for Host
-  if (pinnedId) {
-    const isLocalPinned = pinnedId === 'local';
-    const pinnedPeer = isLocalPinned ? null : roster[pinnedId];
-    const pinnedStream = isLocalPinned ? localStream : remoteStreams[pinnedId];
+  if (effectivePinnedId) {
+    const isLocalPinned = effectivePinnedId === 'local';
+    const isScreenPinned = effectivePinnedId.startsWith('screen-');
+    const screenPeerId = isScreenPinned ? effectivePinnedId.replace('screen-', '') : null;
+    const pinnedPeer = (isLocalPinned || isScreenPinned) ? null : roster[effectivePinnedId];
+
+    let pinnedStream = null;
+    let pinnedUserName = '';
+
+    if (isLocalPinned) {
+      pinnedStream = localStream;
+      pinnedUserName = userName;
+    } else if (isScreenPinned) {
+      pinnedStream = remoteScreenStreams[screenPeerId];
+      pinnedUserName = `${roster[screenPeerId]?.userName || 'Participant'} (Presentation)`;
+    } else if (pinnedPeer) {
+      pinnedStream = remoteStreams[effectivePinnedId];
+      pinnedUserName = pinnedPeer.userName;
+    }
 
     return (
       <div
@@ -221,6 +282,22 @@ export default function VideoGrid({
               backgroundEffect={personalSettings?.backgroundEffect || 'none'}
               isPinned={true}
               onPin={() => handleTogglePin('local')}
+            />
+          ) : isScreenPinned ? (
+            <VideoTile
+              stream={pinnedStream}
+              userName={pinnedUserName}
+              peerId={effectivePinnedId}
+              isAudioMuted={false}
+              isVideoOff={false}
+              isLocal={false}
+              isScreenSharing={true}
+              isHandRaised={false}
+              isSpeaking={false}
+              isHost={roster[screenPeerId]?.isHost}
+              isPinned={true}
+              onPin={() => handleTogglePin(effectivePinnedId)}
+              onMutePeer={() => {}}
             />
           ) : pinnedPeer ? (
             <VideoTile
@@ -272,7 +349,7 @@ export default function VideoGrid({
           )}
 
           {pagePeers
-            .filter((p) => p.peerId !== pinnedId)
+            .filter((p) => p.peerId !== effectivePinnedId)
             .map((peer) => (
               <div key={peer.peerId} style={{ height: '160px', flexShrink: 0 }}>
                 <VideoTile

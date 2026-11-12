@@ -29,3 +29,4 @@ export function sanitizeChatMessage(message, maxLength = 1000) {
   if (typeof message !== 'string') return '';
   return sanitizeString(message, maxLength);
 }
+

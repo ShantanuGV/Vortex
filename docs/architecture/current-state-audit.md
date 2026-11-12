@@ -198,3 +198,4 @@ During and after the architectural evolution, the following verified capabilitie
 - Picture-in-Picture (PiP) and keyboard shortcuts (`Ctrl+D`, `Ctrl+E`, `Ctrl+H`, `Spacebar` push-to-talk).
 - Non-blocking toast notifications.
 - HTTP `/healthz` and `/readyz` probes.
+

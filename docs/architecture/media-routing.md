@@ -85,3 +85,4 @@ When room capacity exceeds a single worker core or spans multiple media nodes:
    - `pipeManager.createCrossHostPipeTransport(router, { listenIp })` allocates UDP pipe ports.
    - Transports connect across hosts exchanging IP and port tuples.
    - Stream is consumed on source pipe transport and produced on target pipe transport.
+

@@ -54,6 +54,13 @@ export const config = {
     }
   },
 
+  // STUN / TURN NAT Traversal Servers (ARCH-005)
+  turn: {
+    url: process.env.TURN_URL || null,
+    username: process.env.TURN_USERNAME || null,
+    credential: process.env.TURN_CREDENTIAL || null
+  },
+
   // Meeting defaults
   meeting: {
     defaultMode: 'conference', // 'conference' | 'webinar'
@@ -61,3 +68,4 @@ export const config = {
     gracePeriodMs: 30000 // 30-second session grace period for reconnection
   }
 };
+

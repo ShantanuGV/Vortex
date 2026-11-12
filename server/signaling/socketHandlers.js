@@ -4,6 +4,8 @@ import { sanitizeRoomId, sanitizeString, sanitizeChatMessage } from '../security
 import { SubscriptionEngine } from '../subscription/subscriptionEngine.js';
 import { SimulcastManager } from '../media/simulcastManager.js';
 import { ActiveSpeakerTracker } from '../subscription/activeSpeakerTracker.js';
+import { config } from '../config/index.js';
+import crypto from 'crypto';
 
 export function registerSocketHandlers({
   io,
@@ -383,6 +385,28 @@ export function registerSocketHandlers({
     }
   });
 
+  // 6a2. Get Active Existing Producers for Room (reconnection & failover - BUG-001/ARCH-002)
+  socket.on('get-existing-producers', (callback) => {
+    const room = roomManager.getRoom(socket.roomId);
+    if (!room) return typeof callback === 'function' && callback({ error: 'Room not found' });
+
+    const authorizedProducers = [];
+    if (room.producers) {
+      room.producers.forEach((prodEntry, prodId) => {
+        if (prodEntry.peerId === socket.id) return;
+        if (PermissionService.canConsume(room, socket.id, prodEntry)) {
+          authorizedProducers.push({
+            producerId: prodId,
+            producerPeerId: prodEntry.peerId,
+            kind: prodEntry.kind,
+            appData: prodEntry.appData
+          });
+        }
+      });
+    }
+    if (typeof callback === 'function') callback({ producers: authorizedProducers });
+  });
+
   // 6b. Create WebRTC Transport
   socket.on('createWebRtcTransport', async ({ direction, sctpCapabilities }, callback) => {
     const room = roomManager.getRoom(socket.roomId);
@@ -426,17 +450,46 @@ export function registerSocketHandlers({
         if (socket.transports) socket.transports.delete(transport.id);
       });
 
+      // Construct ICE servers list (ARCH-005)
+      const iceServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ];
+      if (config.turn?.url) {
+        iceServers.push({
+          urls: config.turn.url,
+          username: config.turn.username,
+          credential: config.turn.credential
+        });
+      }
+
       if (typeof callback === 'function') {
         callback({
           id: transport.id,
           iceParameters: transport.iceParameters,
           iceCandidates: transport.iceCandidates,
           dtlsParameters: transport.dtlsParameters,
-          sctpParameters: transport.sctpParameters
+          sctpParameters: transport.sctpParameters,
+          iceServers
         });
       }
     } catch (err) {
       console.error('[Mediasoup] createWebRtcTransport error:', err);
+      if (typeof callback === 'function') callback({ error: err.message });
+    }
+  });
+
+  // 6b2. Restart ICE on WebRTC Transport (BUG-010)
+  socket.on('restartIce', async ({ transportId }, callback) => {
+    const room = roomManager.getRoom(socket.roomId);
+    const auth = AuthGuard.validateTransportOwnership(room, transportId, socket.id);
+    if (!auth.ok) return typeof callback === 'function' && callback({ error: auth.error });
+
+    try {
+      const iceParameters = await auth.transport.restartIce();
+      if (typeof callback === 'function') callback({ iceParameters });
+    } catch (err) {
+      console.error('[Mediasoup] restartIce error:', err);
       if (typeof callback === 'function') callback({ error: err.message });
     }
   });
@@ -479,16 +532,53 @@ export function registerSocketHandlers({
         appData
       });
 
+      // Mediasoup Server-side AudioLevelObserver tracking (ARCH-007)
+      if (kind === 'audio' && room.audioLevelObserver && !room.audioLevelObserver.closed) {
+        room.audioLevelObserver.addProducer({ producerId: producer.id }).catch(() => {});
+        if (!room.audioLevelObserver._vadBound) {
+          room.audioLevelObserver._vadBound = true;
+          room.audioLevelObserver.on('volumes', (volumes) => {
+            if (!volumes || volumes.length === 0) return;
+            const top = volumes[0];
+            const prodEntry = room.producers.get(top.producer.id);
+            if (prodEntry) {
+              room.activeSpeakers.add(prodEntry.peerId);
+              roomManager.queueDelta(room, {
+                type: 'active-speaker-change',
+                peerId: prodEntry.peerId,
+                isSpeaking: true
+              }, io);
+            }
+          });
+          room.audioLevelObserver.on('silence', () => {
+            if (room.activeSpeakers.size > 0) {
+              room.activeSpeakers.clear();
+              roomManager.queueDelta(room, {
+                type: 'active-speaker-change',
+                peerId: null,
+                isSpeaking: false
+              }, io);
+            }
+          });
+        }
+      }
+
       socket.producers = socket.producers || new Set();
       socket.producers.add(producer.id);
       metrics.increment('producersCreatedTotal', 1);
 
       producer.on('transportclose', () => {
+        if (kind === 'audio' && room.audioLevelObserver && !room.audioLevelObserver.closed) {
+          room.audioLevelObserver.removeProducer({ producerId: producer.id }).catch(() => {});
+        }
         producer.close();
         room.producers.delete(producer.id);
       });
 
       producer.on('close', () => {
+        if (kind === 'audio' && room.audioLevelObserver && !room.audioLevelObserver.closed) {
+          room.audioLevelObserver.removeProducer({ producerId: producer.id }).catch(() => {});
+        }
         room.producers.delete(producer.id);
         if (socket.producers) socket.producers.delete(producer.id);
         io.to(room.id).emit('producer-closed', { producerId: producer.id, peerId: socket.id });
@@ -843,7 +933,7 @@ export function registerSocketHandlers({
     // Room Empty or Host Migration
     if (room.participants.size === 0) {
       if (room.waitingParticipants.size > 0) {
-        // Promote first waiting user to host
+        // Promote first waiting user to host (BUG-009 Fix)
         const firstWaitingId = Array.from(room.waitingParticipants.keys())[0];
         const firstWaiting = room.waitingParticipants.get(firstWaitingId);
         const targetSocket = io.sockets.sockets.get(firstWaitingId);
@@ -854,6 +944,20 @@ export function registerSocketHandlers({
           await admitParticipant(room, targetSocket, {
             isAudioMuted: firstWaiting.isAudioMuted,
             isVideoOff: firstWaiting.isVideoOff
+          });
+
+          // 1. Regenerate hostSecret for the promoted host
+          room.hostSecret = crypto.randomBytes(24).toString('hex');
+          targetSocket.emit('host-token-update', { hostSecret: room.hostSecret });
+
+          // 2. Transfer remaining waiting list to the new host
+          const remainingWaitingList = Array.from(room.waitingParticipants.values());
+          targetSocket.emit('waiting-list-update', { waitingList: remainingWaitingList });
+
+          // 3. Inform room that host changed
+          io.to(roomId).emit('host-changed', {
+            newHostId: firstWaitingId,
+            newHostName: firstWaiting.userName
           });
           return;
         }
@@ -888,7 +992,7 @@ export function registerSocketHandlers({
         const waitingList = Array.from(room.waitingParticipants.values());
         io.to(newHostId).emit('waiting-list-update', { waitingList });
 
-        room.hostSecret = (await import('crypto')).default.randomBytes(24).toString('hex');
+        room.hostSecret = crypto.randomBytes(24).toString('hex');
         io.to(newHostId).emit('host-token-update', { hostSecret: room.hostSecret });
       }
 
@@ -906,3 +1010,4 @@ export function registerSocketHandlers({
     }
   });
 }
+

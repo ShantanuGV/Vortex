@@ -82,3 +82,4 @@ Each occupied Virtual Slot dynamically requests the optimal Mediasoup simulcast 
 - **Active Speaker & Pinned Slots**: Spatial Layer 2 (720p @ 900 kbps).
 - **Visible Grid Slots**: Spatial Layer 1 (360p @ 300 kbps) or Layer 0 (180p @ 100 kbps).
 - **Network Degradation**: The `NetworkMonitor` downshifts all active slots to Layer 0 or audio-only under severe packet loss (>15%).
+

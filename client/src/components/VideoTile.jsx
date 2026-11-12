@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { MicOff, Pin, Hand, Volume2, PictureInPicture2 } from 'lucide-react';
 import { getParticipantColor } from '../utils/colors';
 
-export default function VideoTile({
+const VideoTile = React.memo(function VideoTile({
   stream,
   userName,
   peerId,
@@ -27,7 +27,9 @@ export default function VideoTile({
   useEffect(() => {
     if (videoRef.current) {
       if (stream) {
-        videoRef.current.srcObject = stream;
+        if (videoRef.current.srcObject !== stream) {
+          videoRef.current.srcObject = stream;
+        }
         videoRef.current.play().catch(() => {});
       } else {
         videoRef.current.srcObject = null;
@@ -36,7 +38,9 @@ export default function VideoTile({
 
     if (audioRef.current && !isLocal) {
       if (stream && stream.getAudioTracks().length > 0) {
-        audioRef.current.srcObject = stream;
+        if (audioRef.current.srcObject !== stream) {
+          audioRef.current.srcObject = stream;
+        }
         audioRef.current.play().catch(() => {});
       } else {
         audioRef.current.srcObject = null;
@@ -351,4 +355,6 @@ export default function VideoTile({
       </div>
     </div>
   );
-}
+});
+
+export default VideoTile;

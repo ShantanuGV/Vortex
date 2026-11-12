@@ -155,3 +155,4 @@ runBrowserTest().catch((err) => {
   console.error('\n❌ REAL BROWSER TEST FAILED:', err);
   process.exit(1);
 });
+

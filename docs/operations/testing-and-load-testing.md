@@ -74,3 +74,4 @@ npm run test:all
 | **Worker Router Distribution** | `[W0: 6 routers], [W1: 3 routers], [W2: 3 routers], [W3: 2 routers]` |
 | **Dual-Browser Real Media Test** | **PASS** (Live video & audio element playback verified in dual Playwright contexts) |
 | **Worker Death Recovery** | **PASS** (Zero room loss; automated failover and router re-binding) |
+

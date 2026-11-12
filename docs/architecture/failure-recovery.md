@@ -68,3 +68,4 @@ flowchart TD
 - **Liveness Probe (`/healthz`)**: HTTP 200 OK verifying the process event loop is responsive.
 - **Readiness Probe (`/readyz`)**: Verifies that at least one Mediasoup C++ worker is alive and ready to process WebRTC media.
 - **Metrics Endpoint (`/api/metrics`)**: Serves JSON system load or Prometheus-formatted metrics when requested with `Accept: text/plain`.
+
