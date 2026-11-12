@@ -9,8 +9,17 @@
     "server": "npm --prefix server start",
     "client": "npm --prefix client run dev",
     "test": "node tests/integration.test.mjs",
+    "test:unit": "node tests/unit/fabric.unit.test.mjs",
+    "test:conf": "node tests/integration.conference.test.mjs",
+    "test:dist": "node tests/distributed/distributed.test.mjs",
+    "test:fail": "node tests/failure/failure.test.mjs",
+    "test:load": "node tests/load/load.test.mjs",
+    "test:browser": "node tests/browser/multibrowser.test.mjs",
+    "test:all": "node tests/unit/fabric.unit.test.mjs && node tests/integration.test.mjs && node tests/integration.conference.test.mjs && node tests/distributed/distributed.test.mjs && node tests/failure/failure.test.mjs && node tests/load/load.test.mjs && node tests/browser/multibrowser.test.mjs",
     "rea:audit": "npx rea-agents evaluate-reconstruction-coverage .rea/reconstruction-ledger.json",
     "rea:doctor": "npx rea-agents doctor"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.0"
   }
 }
-
