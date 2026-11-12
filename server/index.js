@@ -10,6 +10,7 @@ import cluster from 'cluster';
 import { fileURLToPath } from 'url';
 import { setupWorker } from '@socket.io/sticky';
 import { createAdapter } from '@socket.io/cluster-adapter';
+import mediasoup from 'mediasoup';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +59,55 @@ const io = new Server(server, {
 if (!cluster.isPrimary) {
   io.adapter(createAdapter());
   setupWorker(io);
+}
+
+// --- Mediasoup SFU Worker & Media Codecs ---
+// Spawn exactly one C++ Mediasoup Worker per Node.js clustered process
+let mediasoupWorker = null;
+
+const mediaCodecs = [
+  {
+    kind: 'audio',
+    mimeType: 'audio/opus',
+    clockRate: 48000,
+    channels: 2
+  },
+  {
+    kind: 'video',
+    mimeType: 'video/VP8',
+    clockRate: 90000,
+    parameters: {
+      'x-google-start-bitrate': 1000
+    }
+  },
+  {
+    kind: 'video',
+    mimeType: 'video/H264',
+    clockRate: 90000,
+    parameters: {
+      'packetization-mode': 1,
+      'profile-level-id': '42e01f',
+      'level-asymmetry-allowed': 1
+    }
+  }
+];
+
+async function initMediasoupWorker() {
+  if (mediasoupWorker && !mediasoupWorker.closed) return mediasoupWorker;
+
+  mediasoupWorker = await mediasoup.createWorker({
+    logLevel: 'warn',
+    rtcMinPort: parseInt(process.env.MEDIASOUP_MIN_PORT, 10) || 40000,
+    rtcMaxPort: parseInt(process.env.MEDIASOUP_MAX_PORT, 10) || 49999
+  });
+
+  mediasoupWorker.on('died', () => {
+    console.error(`[Mediasoup] SFU Worker PID ${mediasoupWorker.pid} died! Exiting process...`);
+    setTimeout(() => process.exit(1), 2000);
+  });
+
+  console.log(`[Mediasoup] SFU Worker spawned (PID: ${mediasoupWorker.pid})`);
+  return mediasoupWorker;
 }
 
 // --- Anti-Abuse & Rate Limiting Engine ---
@@ -130,10 +180,17 @@ function sanitizeRoomId(roomId) {
  */
 const rooms = new Map();
 
-function getOrCreateRoom(roomId) {
-  if (!rooms.has(roomId)) {
-    rooms.set(roomId, {
+async function getOrCreateRoom(roomId) {
+  let room = rooms.get(roomId);
+  if (!room) {
+    if (!mediasoupWorker) {
+      await initMediasoupWorker();
+    }
+    const router = await mediasoupWorker.createRouter({ mediaCodecs });
+
+    room = {
       id: roomId,
+      router,
       hostId: null,
       hostSecret: crypto.randomBytes(24).toString('hex'), // Cryptographically secure host preservation token
       settings: {
@@ -149,10 +206,16 @@ function getOrCreateRoom(roomId) {
       activeSpeakers: new Set(),
       pendingDeltas: [],
       flushTimer: null,
-      createdAt: Date.now()
-    });
+      createdAt: Date.now(),
+      // Mediasoup SFU structures:
+      transports: new Map(), // transportId -> WebRtcTransport
+      producers: new Map(),  // producerId -> { producer, peerId, kind, appData }
+      consumers: new Map()   // consumerId -> { consumer, peerId, producerId }
+    };
+    rooms.set(roomId, room);
+    console.log(`[Mediasoup] Instantiated Router ${router.id} for room "${roomId}"`);
   }
-  return rooms.get(roomId);
+  return room;
 }
 
 // Batched Delta Broadcaster (50ms interval ticks)
@@ -292,6 +355,22 @@ function admitParticipantToRoom(room, socket, { isAudioMuted = false, isVideoOff
 
   const visibleTotal = isHost ? room.participants.size : visibleParticipants.length;
 
+  // Mediasoup: Collect existing active producers this peer is authorized to consume
+  const authorizedProducers = [];
+  if (room.producers) {
+    room.producers.forEach((prodEntry, prodId) => {
+      if (prodEntry.peerId === socket.id) return; // Don't consume own stream
+      if (isHost || prodEntry.peerId === room.hostId) {
+        authorizedProducers.push({
+          producerId: prodId,
+          producerPeerId: prodEntry.peerId,
+          kind: prodEntry.kind,
+          appData: prodEntry.appData
+        });
+      }
+    });
+  }
+
   socket.emit('room-snapshot', {
     roomId: room.id,
     isHost,
@@ -301,6 +380,7 @@ function admitParticipantToRoom(room, socket, { isAudioMuted = false, isVideoOff
     totalParticipants: visibleTotal,
     participants: visibleParticipants,
     waitingList,
+    existingProducers: authorizedProducers,
     activeSpeakers: Array.from(room.activeSpeakers).filter(
       (spkId) => isHost || spkId === room.hostId || spkId === socket.id
     )
@@ -329,7 +409,7 @@ function admitParticipantToRoom(room, socket, { isAudioMuted = false, isVideoOff
 
 io.on('connection', (socket) => {
   // 1. Join Room (with Host Admission / Waiting Room & Session Token)
-  socket.on('join-room', ({ roomId, userName, isAudioMuted = false, isVideoOff = false, hostSecret = null }) => {
+  socket.on('join-room', async ({ roomId, userName, isAudioMuted = false, isVideoOff = false, hostSecret = null }) => {
     const cleanRoomId = sanitizeRoomId(roomId);
     if (!cleanRoomId) {
       socket.emit('join-error', {
@@ -339,7 +419,7 @@ io.on('connection', (socket) => {
     }
 
     const cleanUserName = sanitizeString(userName, 40) || `User-${socket.id.slice(0, 4)}`;
-    const room = getOrCreateRoom(cleanRoomId);
+    const room = await getOrCreateRoom(cleanRoomId);
 
     // Host Session Re-authentication:
     // If a disconnecting host refreshes or reconnects with their valid cryptographic hostSecret,
@@ -638,29 +718,274 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 6. WebRTC SDP Offer Relay
-  socket.on('offer', ({ targetPeerId, sdp }) => {
-    io.to(targetPeerId).emit('offer', {
-      callerPeerId: socket.id,
-      sdp,
-      userName: socket.userName
-    });
+  // --- Mediasoup SFU Endpoints ---
+
+  // 6a. Get Router RTP Capabilities
+  socket.on('getRouterRtpCapabilities', (data, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room || !room.router) {
+      return typeof callback === 'function' && callback({ error: 'Room or Mediasoup router not found' });
+    }
+    if (typeof callback === 'function') {
+      callback({ rtpCapabilities: room.router.rtpCapabilities });
+    }
   });
 
-  // 7. WebRTC SDP Answer Relay
-  socket.on('answer', ({ targetPeerId, sdp }) => {
-    io.to(targetPeerId).emit('answer', {
-      responderPeerId: socket.id,
-      sdp
-    });
+  // 6b. Create WebRTC Transport (configured with NAT traversal via listenIps)
+  socket.on('createWebRtcTransport', async ({ direction, sctpCapabilities }, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room || !room.router) {
+      return typeof callback === 'function' && callback({ error: 'Room or Mediasoup router not found' });
+    }
+
+    try {
+      const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || null;
+      const listenIp = process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0';
+
+      const listenIps = [
+        {
+          ip: listenIp,
+          announcedIp: announcedIp || (process.env.NODE_ENV === 'production' ? announcedIp : '127.0.0.1')
+        }
+      ];
+
+      const transport = await room.router.createWebRtcTransport({
+        listenIps,
+        enableUdp: true,
+        enableTcp: true,
+        preferUdp: true,
+        initialAvailableOutgoingBitrate: 1000000
+      });
+
+      room.transports.set(transport.id, transport);
+      socket.transports = socket.transports || new Set();
+      socket.transports.add(transport.id);
+
+      transport.on('dtlsstatechange', (dtlsState) => {
+        if (dtlsState === 'closed' || dtlsState === 'failed') {
+          transport.close();
+        }
+      });
+
+      transport.on('close', () => {
+        room.transports.delete(transport.id);
+        if (socket.transports) socket.transports.delete(transport.id);
+      });
+
+      if (typeof callback === 'function') {
+        callback({
+          id: transport.id,
+          iceParameters: transport.iceParameters,
+          iceCandidates: transport.iceCandidates,
+          dtlsParameters: transport.dtlsParameters,
+          sctpParameters: transport.sctpParameters
+        });
+      }
+    } catch (err) {
+      console.error('[Mediasoup] createWebRtcTransport error:', err);
+      if (typeof callback === 'function') callback({ error: err.message });
+    }
   });
 
-  // 8. ICE Candidate Relay
-  socket.on('ice-candidate', ({ targetPeerId, candidate }) => {
-    io.to(targetPeerId).emit('ice-candidate', {
-      senderPeerId: socket.id,
-      candidate
-    });
+  // 6c. Connect WebRTC Transport
+  socket.on('connectWebRtcTransport', async ({ transportId, dtlsParameters }, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return typeof callback === 'function' && callback({ error: 'Room not found' });
+
+    const transport = room.transports.get(transportId);
+    if (!transport) return typeof callback === 'function' && callback({ error: 'Transport not found' });
+
+    try {
+      await transport.connect({ dtlsParameters });
+      if (typeof callback === 'function') callback({ connected: true });
+    } catch (err) {
+      console.error('[Mediasoup] connectWebRtcTransport error:', err);
+      if (typeof callback === 'function') callback({ error: err.message });
+    }
+  });
+
+  // 6d. Produce (upload local audio/video/screen tracks)
+  socket.on('produce', async ({ transportId, kind, rtpParameters, appData }, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return typeof callback === 'function' && callback({ error: 'Room not found' });
+
+    const transport = room.transports.get(transportId);
+    if (!transport) return typeof callback === 'function' && callback({ error: 'Transport not found' });
+
+    try {
+      const producer = await transport.produce({
+        kind,
+        rtpParameters,
+        appData: { ...appData, peerId: socket.id }
+      });
+
+      room.producers.set(producer.id, {
+        producer,
+        peerId: socket.id,
+        kind,
+        appData
+      });
+
+      socket.producers = socket.producers || new Set();
+      socket.producers.add(producer.id);
+
+      producer.on('transportclose', () => {
+        producer.close();
+        room.producers.delete(producer.id);
+      });
+
+      producer.on('close', () => {
+        room.producers.delete(producer.id);
+        if (socket.producers) socket.producers.delete(producer.id);
+        io.to(roomId).emit('producer-closed', { producerId: producer.id, peerId: socket.id });
+      });
+
+      // Broadcast new producer to authorized peers (Webinar Privacy):
+      // If host produces, broadcast to all participants in room
+      // If non-host produces, notify only the host
+      const isHost = socket.id === room.hostId;
+      const newProducerPayload = {
+        producerId: producer.id,
+        producerPeerId: socket.id,
+        kind,
+        appData
+      };
+
+      if (isHost) {
+        socket.to(roomId).emit('new-producer', newProducerPayload);
+      } else if (room.hostId) {
+        io.to(room.hostId).emit('new-producer', newProducerPayload);
+      }
+
+      if (typeof callback === 'function') callback({ id: producer.id });
+    } catch (err) {
+      console.error('[Mediasoup] produce error:', err);
+      if (typeof callback === 'function') callback({ error: err.message });
+    }
+  });
+
+  // 6e. Consume (receive remote audio/video/screen tracks)
+  socket.on('consume', async ({ transportId, producerId, rtpCapabilities }, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room || !room.router) return typeof callback === 'function' && callback({ error: 'Room or router not found' });
+
+    const transport = room.transports.get(transportId);
+    if (!transport) return typeof callback === 'function' && callback({ error: 'Transport not found' });
+
+    if (!room.router.canConsume({ producerId, rtpCapabilities })) {
+      return typeof callback === 'function' && callback({ error: 'Cannot consume producer with provided RTP capabilities' });
+    }
+
+    try {
+      const consumer = await transport.consume({
+        producerId,
+        rtpCapabilities,
+        paused: true // Start paused per Mediasoup best practice; client will call resumeConsumer
+      });
+
+      room.consumers.set(consumer.id, {
+        consumer,
+        peerId: socket.id,
+        producerId
+      });
+
+      socket.consumers = socket.consumers || new Set();
+      socket.consumers.add(consumer.id);
+
+      consumer.on('transportclose', () => {
+        consumer.close();
+        room.consumers.delete(consumer.id);
+      });
+
+      consumer.on('producerclose', () => {
+        consumer.close();
+        room.consumers.delete(consumer.id);
+        socket.emit('consumer-closed', { consumerId: consumer.id, producerId });
+      });
+
+      consumer.on('producerpause', () => {
+        socket.emit('consumer-paused', { consumerId: consumer.id });
+      });
+
+      consumer.on('producerresume', () => {
+        socket.emit('consumer-resumed', { consumerId: consumer.id });
+      });
+
+      if (typeof callback === 'function') {
+        callback({
+          id: consumer.id,
+          producerId,
+          kind: consumer.kind,
+          rtpParameters: consumer.rtpParameters,
+          type: consumer.type,
+          producerPaused: consumer.producerPaused
+        });
+      }
+    } catch (err) {
+      console.error('[Mediasoup] consume error:', err);
+      if (typeof callback === 'function') callback({ error: err.message });
+    }
+  });
+
+  // 6f. Resume Consumer
+  socket.on('resumeConsumer', async ({ consumerId }, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return typeof callback === 'function' && callback?.({ error: 'Room not found' });
+
+    const entry = room.consumers.get(consumerId);
+    if (!entry) return typeof callback === 'function' && callback?.({ error: 'Consumer not found' });
+
+    try {
+      await entry.consumer.resume();
+      if (typeof callback === 'function') callback?.({ resumed: true });
+    } catch (err) {
+      if (typeof callback === 'function') callback?.({ error: err.message });
+    }
+  });
+
+  // 6g. Pause Producer
+  socket.on('pauseProducer', async ({ producerId }, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return typeof callback === 'function' && callback?.({ error: 'Room not found' });
+    const entry = room.producers.get(producerId);
+    if (entry && entry.peerId === socket.id) {
+      await entry.producer.pause();
+    }
+    if (typeof callback === 'function') callback?.({ paused: true });
+  });
+
+  // 6h. Resume Producer
+  socket.on('resumeProducer', async ({ producerId }, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return typeof callback === 'function' && callback?.({ error: 'Room not found' });
+    const entry = room.producers.get(producerId);
+    if (entry && entry.peerId === socket.id) {
+      await entry.producer.resume();
+    }
+    if (typeof callback === 'function') callback?.({ resumed: true });
+  });
+
+  // 6i. Close Producer
+  socket.on('closeProducer', ({ producerId }, callback) => {
+    const roomId = socket.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return typeof callback === 'function' && callback?.({ error: 'Room not found' });
+
+    const entry = room.producers.get(producerId);
+    if (entry && entry.peerId === socket.id) {
+      entry.producer.close();
+      room.producers.delete(producerId);
+      io.to(roomId).emit('producer-closed', { producerId, peerId: socket.id });
+    }
+    if (typeof callback === 'function') callback?.({ closed: true });
   });
 
   // 9. Media State Toggle with Permission Check
@@ -818,6 +1143,43 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Clean up socket's Mediasoup producers
+    if (socket.producers && room.producers) {
+      socket.producers.forEach((prodId) => {
+        const pEntry = room.producers.get(prodId);
+        if (pEntry) {
+          pEntry.producer.close();
+          room.producers.delete(prodId);
+          io.to(roomId).emit('producer-closed', { producerId: prodId, peerId: socket.id });
+        }
+      });
+      socket.producers.clear();
+    }
+
+    // Clean up socket's Mediasoup consumers
+    if (socket.consumers && room.consumers) {
+      socket.consumers.forEach((consId) => {
+        const cEntry = room.consumers.get(consId);
+        if (cEntry) {
+          cEntry.consumer.close();
+          room.consumers.delete(consId);
+        }
+      });
+      socket.consumers.clear();
+    }
+
+    // Clean up socket's Mediasoup transports
+    if (socket.transports && room.transports) {
+      socket.transports.forEach((transId) => {
+        const transport = room.transports.get(transId);
+        if (transport) {
+          transport.close();
+          room.transports.delete(transId);
+        }
+      });
+      socket.transports.clear();
+    }
+
     room.participants.delete(socket.id);
     room.activeSpeakers.delete(socket.id);
 
@@ -842,7 +1204,11 @@ io.on('connection', (socket) => {
         }
       }
 
-      // If room is truly empty (0 participants and 0 waiting), clean up
+      // If room is truly empty (0 participants and 0 waiting), close router and clean up
+      if (room.router && !room.router.closed) {
+        room.router.close();
+        console.log(`[Mediasoup] Router closed for room "${roomId}"`);
+      }
       if (room.flushTimer) clearTimeout(room.flushTimer);
       rooms.delete(roomId);
       console.log(`[Signaling] Room "${roomId}" deleted (empty).`);
@@ -924,22 +1290,33 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-// In standalone mode, listen on PORT. In cluster worker mode, sticky master handles port routing.
-if (cluster.isPrimary) {
-  server.listen(PORT, () => {
-    console.log(`=============================================================`);
-    console.log(`🚀 Scalable VORTEX Signaling Server running on port ${PORT}`);
-    console.log(`   Web App:         http://localhost:${PORT}`);
-    console.log(`   Host Privacy:    Webinar Star-Topology active`);
-    console.log(`   Load Metrics:    http://localhost:${PORT}/api/metrics`);
-    console.log(`   Health Probes:   /healthz & /readyz`);
-    console.log(`=============================================================`);
-  });
-} else {
-  server.listen(0, () => {
-    console.log(`[Worker ${process.pid}] VORTEX Signaling Worker online`);
-  });
+// Start Mediasoup SFU Worker and HTTP Server
+async function startServer() {
+  await initMediasoupWorker();
+
+  // In standalone mode, listen on PORT. In cluster worker mode, sticky master handles port routing.
+  if (cluster.isPrimary) {
+    server.listen(PORT, () => {
+      console.log(`=============================================================`);
+      console.log(`🚀 Scalable VORTEX SFU Server running on port ${PORT}`);
+      console.log(`   Architecture:    Mediasoup Centralized SFU + Multi-Worker`);
+      console.log(`   Web App:         http://localhost:${PORT}`);
+      console.log(`   Host Privacy:    Webinar Host-Moderated SFU active`);
+      console.log(`   Load Metrics:    http://localhost:${PORT}/api/metrics`);
+      console.log(`   Health Probes:   /healthz & /readyz`);
+      console.log(`=============================================================`);
+    });
+  } else {
+    server.listen(0, () => {
+      console.log(`[Worker ${process.pid}] VORTEX Signaling & Mediasoup SFU Worker online`);
+    });
+  }
 }
+
+startServer().catch((err) => {
+  console.error('[Server] Fatal startup error:', err);
+  process.exit(1);
+});
 
 // --- Graceful Shutdown Handler ---
 function handleGracefulShutdown(signal) {
@@ -950,8 +1327,16 @@ function handleGracefulShutdown(signal) {
     message: 'Server is restarting for scheduled maintenance. Please wait a moment.'
   });
 
+  // Close Mediasoup worker
+  if (mediasoupWorker && !mediasoupWorker.closed) {
+    mediasoupWorker.close();
+  }
+
   // Clear pending delta flush timers for all rooms
   rooms.forEach((room) => {
+    if (room.router && !room.router.closed) {
+      room.router.close();
+    }
     if (room.flushTimer) {
       clearTimeout(room.flushTimer);
       room.flushTimer = null;

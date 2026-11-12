@@ -1,37 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
-
-// Dynamic ICE & Enterprise TURN Configuration
-function getIceServers() {
-  const servers = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
-  ];
-
-  const customStun = import.meta.env.VITE_STUN_SERVERS;
-  if (customStun) {
-    customStun.split(',').forEach((url) => {
-      if (url.trim()) servers.push({ urls: url.trim() });
-    });
-  }
-
-  const turnUrl = import.meta.env.VITE_TURN_SERVERS;
-  const turnUser = import.meta.env.VITE_TURN_USERNAME;
-  const turnCred = import.meta.env.VITE_TURN_CREDENTIAL;
-  if (turnUrl) {
-    const urls = turnUrl.includes(',') ? turnUrl.split(',').map((u) => u.trim()) : turnUrl.trim();
-    servers.push({
-      urls,
-      username: turnUser || '',
-      credential: turnCred || ''
-    });
-  }
-
-  return { iceServers: servers };
-}
-
-const ICE_SERVERS = getIceServers();
+import { Device } from 'mediasoup-client';
 
 const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || (
   typeof window !== 'undefined'
@@ -45,7 +14,7 @@ export function useWebRTC() {
   const [localStream, setLocalStream] = useState(null);
   const [roster, setRoster] = useState({});
   const [remoteStreams, setRemoteStreams] = useState({});
-  
+
   // Authority & Meeting Settings (Admin controls)
   const [isHost, setIsHost] = useState(false);
   const [hostId, setHostId] = useState(null);
@@ -57,7 +26,7 @@ export function useWebRTC() {
     allowCamera: true
   });
 
-  // Enterprise WebRTC Diagnostics (RTT, packet loss, jitter)
+  // Enterprise WebRTC & SFU Transport Diagnostics
   const [networkStats, setNetworkStats] = useState({
     quality: 'excellent', // 'excellent' | 'good' | 'fair' | 'poor'
     rttMs: 0,
@@ -79,8 +48,6 @@ export function useWebRTC() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const hostSecretRef = useRef(null);
-
   // Personal Settings (Persisted locally)
   const [personalSettings, setPersonalSettings] = useState(() => {
     try {
@@ -97,7 +64,7 @@ export function useWebRTC() {
         autoGainControl: true,
         mirrorVideo: true,
         lightingBoost: false,
-        backgroundEffect: 'none', // 'none' | 'slight-blur' | 'heavy-blur'
+        backgroundEffect: 'none',
         defaultAudioMuted: false,
         defaultVideoOff: false
       };
@@ -139,19 +106,27 @@ export function useWebRTC() {
   const [deniedReason, setDeniedReason] = useState('');
   const [waitingPeers, setWaitingPeers] = useState([]); // Array of { peerId, userName, requestedAt }
 
-  const socketRef = useRef(null);
-  const peerConnections = useRef({}); // peerId -> RTCPeerConnection
-  const remoteStreamsRef = useRef({}); // peerId -> MediaStream (persistent)
-  const screenTrackRef = useRef(null);
+  // ---------------------------------------------------------------------------
+  // STABLE MEDIASOUP REFS & MAPS (Held strictly outside the React render cycle)
+  // ---------------------------------------------------------------------------
+  const deviceRef = useRef(null);
+  const sendTransportRef = useRef(null);
+  const recvTransportRef = useRef(null);
+  const producersRef = useRef(new Map()); // 'audio' | 'video' | 'screen' -> Producer
+  const consumersRef = useRef(new Map()); // consumerId -> { consumer, peerId, kind, producerId }
+  const peerMediaStreamsRef = useRef(new Map()); // peerId -> MediaStream (STABLE: tracks updated in-place)
+  const pendingProducersQueue = useRef([]); // Producer payloads queued before recvTransport is ready
   const localStreamRef = useRef(null);
-  const pendingCandidates = useRef({}); // peerId -> Array of RTCIceCandidate
+  const screenTrackRef = useRef(null);
+  const socketRef = useRef(null);
   const audioContextRef = useRef(null);
   const vadIntervalRef = useRef(null);
+  const hostSecretRef = useRef(null);
 
-  // Initialize or acquire Local MediaStream with resolution constraints
+  // Acquire Local MediaStream
   const getMediaStream = useCallback(async (overrides = {}) => {
     const settings = { ...personalSettings, ...overrides };
-    
+
     let videoConstraints = {
       facingMode: 'user',
       frameRate: { ideal: settings.framerate || 30 }
@@ -190,7 +165,7 @@ export function useWebRTC() {
       setLocalStream(stream);
       return stream;
     } catch (err) {
-      console.warn('[WebRTC] Camera/Mic access warning, attempting audio-only fallback:', err);
+      console.warn('[Mediasoup] Camera/Mic access warning, attempting audio-only fallback:', err);
       try {
         const audioOnlyStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         localStreamRef.current = audioOnlyStream;
@@ -198,7 +173,7 @@ export function useWebRTC() {
         setIsVideoOff(true);
         return audioOnlyStream;
       } catch (audioErr) {
-        console.error('[WebRTC] Could not acquire audio or video stream:', audioErr);
+        console.error('[Mediasoup] Could not acquire audio or video stream:', audioErr);
         const emptyStream = new MediaStream();
         localStreamRef.current = emptyStream;
         setLocalStream(emptyStream);
@@ -225,7 +200,6 @@ export function useWebRTC() {
       source.connect(analyser);
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
       if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
 
       vadIntervalRef.current = setInterval(() => {
@@ -250,219 +224,254 @@ export function useWebRTC() {
     }
   }, [isAudioMuted]);
 
-  // Clean up PeerConnection
-  const cleanupPeer = useCallback((peerId) => {
-    if (peerConnections.current[peerId]) {
+  // ---------------------------------------------------------------------------
+  // MEDIASOUP SFU PIPELINE: Device, Transports, Produce (Simulcast), Consume
+  // ---------------------------------------------------------------------------
+
+  // 1. Consume a remote producer track into a stable MediaStream
+  const consumeProducer = useCallback(async ({ producerId, producerPeerId, kind, appData }) => {
+    const device = deviceRef.current;
+    const recvTransport = recvTransportRef.current;
+    const socket = socketRef.current;
+
+    if (!device || !recvTransport || !socket) {
+      // Queue producer for consumption as soon as recvTransport initializes
+      pendingProducersQueue.current.push({ producerId, producerPeerId, kind, appData });
+      return;
+    }
+
+    // Guard against duplicate consumption of the same producer
+    for (const item of consumersRef.current.values()) {
+      if (item.producerId === producerId) return;
+    }
+
+    socket.emit('consume', {
+      transportId: recvTransport.id,
+      producerId,
+      rtpCapabilities: device.rtpCapabilities
+    }, async (response) => {
+      if (response?.error) {
+        console.warn(`[Mediasoup] Consume rejected for producer ${producerId}:`, response.error);
+        return;
+      }
+
       try {
-        peerConnections.current[peerId].close();
-      } catch (e) {
-        console.error(e);
-      }
-      delete peerConnections.current[peerId];
-    }
-    delete pendingCandidates.current[peerId];
-    delete remoteStreamsRef.current[peerId];
-    setRemoteStreams((prev) => {
-      const copy = { ...prev };
-      delete copy[peerId];
-      return copy;
-    });
-  }, []);
-
-  // Process queued ICE candidates after remote description is established
-  const processPendingCandidates = useCallback(async (peerId) => {
-    const pc = peerConnections.current[peerId];
-    if (pc && pc.remoteDescription && pendingCandidates.current[peerId]) {
-      const candidates = pendingCandidates.current[peerId];
-      pendingCandidates.current[peerId] = [];
-      for (const candidate of candidates) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.warn('[WebRTC] ICE candidate error:', e);
-        }
-      }
-    }
-  }, []);
-
-  // Create PeerConnection with Stable Multi-Track Streaming
-  const createPeerConnection = useCallback((peerId, targetUserName) => {
-    if (peerConnections.current[peerId]) {
-      return peerConnections.current[peerId];
-    }
-
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-    peerConnections.current[peerId] = pc;
-
-    // Attach local stream tracks to PC
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current);
-      });
-    }
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current) {
-        socketRef.current.emit('ice-candidate', {
-          targetPeerId: peerId,
-          candidate: event.candidate
+        const { id, producerId: pId, kind: cKind, rtpParameters } = response;
+        const consumer = await recvTransport.consume({
+          id,
+          producerId: pId,
+          kind: cKind,
+          rtpParameters
         });
-      }
-    };
 
-    // Stable Multi-Track Handler: Creates or updates persistent MediaStream
-    pc.ontrack = (event) => {
-      console.log(`[WebRTC] Received ${event.track.kind} track from ${targetUserName || peerId}`);
-      
-      let peerStream = remoteStreamsRef.current[peerId];
-      if (!peerStream) {
-        peerStream = new MediaStream();
-        remoteStreamsRef.current[peerId] = peerStream;
-      }
+        consumersRef.current.set(consumer.id, {
+          consumer,
+          peerId: producerPeerId,
+          producerId: pId,
+          kind: cKind
+        });
 
-      // Add track to persistent stream
-      peerStream.addTrack(event.track);
+        // STABLE TRACK STORAGE: Store track in stable MediaStream outside React render loop
+        let stream = peerMediaStreamsRef.current.get(producerPeerId);
+        if (!stream) {
+          stream = new MediaStream();
+          peerMediaStreamsRef.current.set(producerPeerId, stream);
+        }
 
-      // Force React state update by creating a new MediaStream container with all tracks
-      const updatedStream = new MediaStream(peerStream.getTracks());
-      setRemoteStreams((prev) => ({
-        ...prev,
-        [peerId]: updatedStream
-      }));
+        // Replace any prior track of the same kind to prevent track stacking
+        stream.getTracks().forEach((existingTrack) => {
+          if (existingTrack.kind === consumer.track.kind) {
+            stream.removeTrack(existingTrack);
+          }
+        });
+        stream.addTrack(consumer.track);
 
-      event.track.onunmute = () => {
+        // Resume consumer on the SFU (consumers are created paused by default)
+        socket.emit('resumeConsumer', { consumerId: consumer.id });
+
+        // Update React remoteStreams state reference
         setRemoteStreams((prev) => ({
           ...prev,
-          [peerId]: new MediaStream(peerStream.getTracks())
+          [producerPeerId]: stream
         }));
-      };
-    };
 
-    pc.oniceconnectionstatechange = () => {
-      const state = pc.iceConnectionState;
-      console.log(`[WebRTC] ICE state with ${peerId}: ${state}`);
-      if (state === 'failed' || state === 'disconnected') {
-        console.warn(`[WebRTC] ICE interrupted on ${peerId}. Triggering auto ICE restart...`);
-        addToast('Network connection interrupted. Attempting automatic ICE restart...', 'warning');
+        consumer.on('transportclose', () => {
+          consumersRef.current.delete(consumer.id);
+        });
+
+        consumer.on('trackended', () => {
+          stream.removeTrack(consumer.track);
+          setRemoteStreams((prev) => ({ ...prev, [producerPeerId]: stream }));
+        });
+      } catch (err) {
+        console.error('[Mediasoup] Error finalizing consumer:', err);
+      }
+    });
+  }, []);
+
+  // 2. Publish local mic & camera tracks with Simulcast on SendTransport
+  const publishLocalTracks = useCallback(async (stream, audioMuted, videoOff) => {
+    const sendTransport = sendTransportRef.current;
+    if (!sendTransport || sendTransport.closed) return;
+
+    // A. Audio Track (Opus)
+    const audioTrack = stream?.getAudioTracks()[0];
+    if (audioTrack && !producersRef.current.has('audio')) {
+      try {
+        audioTrack.enabled = !audioMuted;
+        const audioProducer = await sendTransport.produce({
+          track: audioTrack,
+          codecOptions: {
+            opusStereo: true,
+            opusDtx: true
+          },
+          appData: { mediaType: 'mic' }
+        });
+        producersRef.current.set('audio', audioProducer);
+
+        if (audioMuted) {
+          audioProducer.pause();
+          socketRef.current?.emit('pauseProducer', { producerId: audioProducer.id });
+        }
+      } catch (err) {
+        console.warn('[Mediasoup] Audio produce error:', err);
+      }
+    }
+
+    // B. Video Track with SIMULCAST (VP8 / H264 multi-layer encodings)
+    const videoTrack = stream?.getVideoTracks()[0];
+    if (videoTrack && !producersRef.current.has('video')) {
+      try {
+        videoTrack.enabled = !videoOff;
+        const videoProducer = await sendTransport.produce({
+          track: videoTrack,
+          encodings: [
+            { maxBitrate: 100000, scaleResolutionDownBy: 4 }, // 180p Low Layer
+            { maxBitrate: 300000, scaleResolutionDownBy: 2 }, // 360p Medium Layer
+            { maxBitrate: 900000, scaleResolutionDownBy: 1 }  // 720p High Layer
+          ],
+          codecOptions: {
+            videoGoogleStartBitrate: 1000
+          },
+          appData: { mediaType: 'camera' }
+        });
+        producersRef.current.set('video', videoProducer);
+
+        if (videoOff) {
+          videoProducer.pause();
+          socketRef.current?.emit('pauseProducer', { producerId: videoProducer.id });
+        }
+      } catch (err) {
+        console.warn('[Mediasoup] Video produce with simulcast error:', err);
+      }
+    }
+  }, []);
+
+  // 3. Initialize Mediasoup Device and establish Send/Recv WebRtcTransports
+  const initMediasoupSession = useCallback(async (socket, activeStream, audioMuted, videoOff) => {
+    return new Promise((resolve, reject) => {
+      // Step A: Request Mediasoup Router RTP Capabilities from server
+      socket.emit('getRouterRtpCapabilities', {}, async (data) => {
+        if (data?.error || !data?.rtpCapabilities) {
+          console.error('[Mediasoup] Failed to fetch router RTP capabilities:', data?.error);
+          return reject(new Error(data?.error || 'No RTP capabilities'));
+        }
 
         try {
-          pc.restartIce();
-          pc.createOffer({ iceRestart: true })
-            .then((offer) => pc.setLocalDescription(offer))
-            .then(() => {
-              if (socketRef.current) {
-                socketRef.current.emit('offer', {
-                  targetPeerId: peerId,
-                  sdp: pc.localDescription
-                });
-              }
-            })
-            .catch((e) => console.warn('[WebRTC] ICE restart offer negotiation failed:', e));
-        } catch (e) {
-          console.warn('[WebRTC] restartIce error:', e);
-        }
-      } else if (state === 'connected') {
-        addToast('WebRTC media stream connected.', 'success', 2500);
-      }
-    };
+          // Step B: Load Device
+          const device = new Device();
+          await device.load({ routerRtpCapabilities: data.rtpCapabilities });
+          deviceRef.current = device;
+          console.log('[Mediasoup] Client Device loaded successfully. Handler:', device.handlerName);
 
-    pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] Connection with ${peerId}: ${pc.connectionState}`);
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-        cleanupPeer(peerId);
-      }
-    };
+          // Step C: Create WebRtc SendTransport
+          socket.emit('createWebRtcTransport', { direction: 'send', sctpCapabilities: device.sctpCapabilities }, async (sendParams) => {
+            if (sendParams?.error) {
+              return reject(new Error(sendParams.error));
+            }
 
-    return pc;
-  }, [cleanupPeer, addToast]);
+            const sendTransport = device.createSendTransport(sendParams);
 
-  // Compute visible peers based on pagination and active speaker
-  const peerList = useMemo(() => Object.values(roster), [roster]);
-  const totalPages = Math.max(1, Math.ceil(peerList.length / pageSize));
-
-  const visiblePeerIds = useMemo(() => {
-    const ids = new Set();
-
-    if (!isHost) {
-      // Star Topology: Non-host participants ONLY establish a WebRTC connection with the Host!
-      // This enforces the requirement: other participants only see the host and themselves,
-      // creating an ultra-lightweight 1-to-1 connection with zero lag.
-      if (hostId && roster[hostId]) {
-        ids.add(hostId);
-      }
-      return ids;
-    }
-
-    // Host connects to the visible page of participants + active speaker + pinned spotlight peer
-    const startIndex = (currentPage - 1) * pageSize;
-    const pageSlice = peerList.slice(startIndex, startIndex + pageSize);
-    pageSlice.forEach((p) => ids.add(p.peerId));
-
-    if (activeSpeakerId && roster[activeSpeakerId]) {
-      ids.add(activeSpeakerId);
-    }
-    // Preserves pinned peer stream so spotlight is never lost when changing pages
-    if (pinnedPeerId && roster[pinnedPeerId]) {
-      ids.add(pinnedPeerId);
-    }
-    return ids;
-  }, [isHost, hostId, peerList, currentPage, pageSize, activeSpeakerId, pinnedPeerId, roster]);
-
-  // Synchronize active WebRTC connections with visible page
-  // Uses Deterministic Initiator (socket.id < peerId) to eliminate SDP glare collisions!
-  useEffect(() => {
-    if (!isConnected || !socketRef.current) return;
-
-    visiblePeerIds.forEach(async (peerId) => {
-      if (!peerConnections.current[peerId]) {
-        const peer = roster[peerId];
-        const pc = createPeerConnection(peerId, peer?.userName);
-
-        // Deterministic Initiator: Only the peer with lower socket ID initiates the offer
-        const shouldInitiate = socketRef.current.id < peerId;
-        if (shouldInitiate) {
-          try {
-            console.log(`[WebRTC] Initiating offer to ${peerId} (socket.id is lower)`);
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socketRef.current.emit('offer', {
-              targetPeerId: peerId,
-              sdp: offer
+            sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+              socket.emit('connectWebRtcTransport', { transportId: sendTransport.id, dtlsParameters }, (res) => {
+                if (res?.error) errback(new Error(res.error));
+                else callback();
+              });
             });
-          } catch (err) {
-            console.error('[WebRTC] Offer initiation error:', err);
-          }
+
+            sendTransport.on('produce', ({ kind, rtpParameters, appData }, callback, errback) => {
+              socket.emit('produce', { transportId: sendTransport.id, kind, rtpParameters, appData }, (res) => {
+                if (res?.error) errback(new Error(res.error));
+                else callback({ id: res.id });
+              });
+            });
+
+            sendTransport.on('connectionstatechange', (state) => {
+              console.log(`[Mediasoup] Send transport state: ${state}`);
+              if (state === 'connected') {
+                addToast('Uplink SFU transport established.', 'success', 2000);
+              }
+            });
+
+            sendTransportRef.current = sendTransport;
+
+            // Step D: Create WebRtc RecvTransport
+            socket.emit('createWebRtcTransport', { direction: 'recv', sctpCapabilities: device.sctpCapabilities }, async (recvParams) => {
+              if (recvParams?.error) {
+                return reject(new Error(recvParams.error));
+              }
+
+              const recvTransport = device.createRecvTransport(recvParams);
+
+              recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+                socket.emit('connectWebRtcTransport', { transportId: recvTransport.id, dtlsParameters }, (res) => {
+                  if (res?.error) errback(new Error(res.error));
+                  else callback();
+                });
+              });
+
+              recvTransport.on('connectionstatechange', (state) => {
+                console.log(`[Mediasoup] Recv transport state: ${state}`);
+                if (state === 'connected') {
+                  addToast('Downlink SFU transport established.', 'success', 2000);
+                }
+              });
+
+              recvTransportRef.current = recvTransport;
+
+              // Step E: Publish Local Tracks with Simulcast
+              await publishLocalTracks(activeStream, audioMuted, videoOff);
+
+              // Step F: Flush any pending producers that arrived during handshake
+              if (pendingProducersQueue.current.length > 0) {
+                const queued = [...pendingProducersQueue.current];
+                pendingProducersQueue.current = [];
+                queued.forEach((item) => consumeProducer(item));
+              }
+
+              resolve();
+            });
+          });
+        } catch (err) {
+          console.error('[Mediasoup] Device initialization failure:', err);
+          reject(err);
         }
-      }
+      });
     });
+  }, [addToast, publishLocalTracks, consumeProducer]);
 
-    // Cleanup peers that left the visible page
-    Object.keys(peerConnections.current).forEach((peerId) => {
-      if (!visiblePeerIds.has(peerId)) {
-        cleanupPeer(peerId);
-      }
-    });
-  }, [visiblePeerIds, isConnected, roster, createPeerConnection, cleanupPeer]);
-
-  // Enterprise WebRTC Diagnostics Poller (RTT, packet loss, jitter)
+  // ---------------------------------------------------------------------------
+  // SFU Diagnostics Poller (Sample stats directly from Mediasoup WebRtcTransports)
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!isConnected) return;
 
     const statsInterval = setInterval(async () => {
-      const pcEntries = Object.entries(peerConnections.current);
-      if (pcEntries.length === 0) return;
-
-      const targetEntry = isHost
-        ? pcEntries[0]
-        : (hostId && peerConnections.current[hostId] ? [hostId, peerConnections.current[hostId]] : pcEntries[0]);
-
-      if (!targetEntry || !targetEntry[1]) return;
-      const targetPc = targetEntry[1];
-
-      if (targetPc.connectionState !== 'connected' && targetPc.iceConnectionState !== 'connected') return;
+      const transport = recvTransportRef.current || sendTransportRef.current;
+      if (!transport || transport.closed) return;
 
       try {
-        const stats = await targetPc.getStats();
+        const stats = await transport.getStats();
         let rtt = 0;
         let packetsLost = 0;
         let packetsReceived = 0;
@@ -474,10 +483,10 @@ export function useWebRTC() {
               rtt = Math.round(report.currentRoundTripTime * 1000);
             }
           }
-          if (report.type === 'inbound-rtp' && report.kind === 'video') {
-            packetsLost = report.packetsLost || 0;
-            packetsReceived = report.packetsReceived || 0;
-            jitter = Math.round((report.jitter || 0) * 1000);
+          if (report.type === 'inbound-rtp') {
+            packetsLost += report.packetsLost || 0;
+            packetsReceived += report.packetsReceived || 0;
+            if (report.jitter) jitter = Math.max(jitter, Math.round(report.jitter * 1000));
           }
         });
 
@@ -491,14 +500,16 @@ export function useWebRTC() {
 
         setNetworkStats({ quality, rttMs: rtt, packetLossPct: lossPct, jitterMs: jitter });
       } catch (err) {
-        // stats ignored on closed connection
+        // Ignore stats errors on closing transport
       }
     }, 2500);
 
     return () => clearInterval(statsInterval);
-  }, [isConnected, isHost, hostId]);
+  }, [isConnected]);
 
-  // Join Room
+  // ---------------------------------------------------------------------------
+  // Join Meeting Room Flow
+  // ---------------------------------------------------------------------------
   const joinRoom = useCallback(async ({ roomId: targetRoomId, userName: name, initialAudioMuted = false, initialVideoOff = false }) => {
     setRoomId(targetRoomId);
     setUserName(name);
@@ -526,7 +537,7 @@ export function useWebRTC() {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log(`[Socket] Connected to signaling engine: ${socket.id}`);
+      console.log(`[Socket] Connected to SFU signaling engine: ${socket.id}`);
       setIsConnected(true);
 
       // Check for saved host session token to restore host privileges
@@ -576,29 +587,25 @@ export function useWebRTC() {
       addToast(`${knockingUser} requested to join the meeting.`, 'info');
     });
 
-    // Knock handled
     socket.on('knock-handled', ({ peerId }) => {
       setWaitingPeers((prev) => prev.filter((p) => p.peerId !== peerId));
     });
 
-    // Knock cancelled
     socket.on('knock-cancelled', ({ peerId }) => {
       setWaitingPeers((prev) => prev.filter((p) => p.peerId !== peerId));
     });
 
-    // Knock all handled
     socket.on('knock-all-handled', () => {
       setWaitingPeers([]);
     });
 
-    // Room Snapshot with Admin & Authority state
-    socket.on('room-snapshot', ({ participants, isHost: hostStatus, hostSecret: receivedHostSecret, hostId: currentHostId, settings, waitingList }) => {
+    // Room Snapshot with Admin & Authority state + Existing Producers
+    socket.on('room-snapshot', async ({ participants, isHost: hostStatus, hostSecret: receivedHostSecret, hostId: currentHostId, settings, waitingList, existingProducers = [] }) => {
       setIsWaitingForAdmission(false);
       setAdmissionStatus(null);
       setIsHost(hostStatus);
       setHostId(currentHostId);
 
-      // Persist host secret if this client is the host
       if (hostStatus && receivedHostSecret) {
         hostSecretRef.current = receivedHostSecret;
         try {
@@ -627,10 +634,63 @@ export function useWebRTC() {
 
       addToast(
         hostStatus
-          ? 'Connected as Meeting Host. Full management unlocked.'
-          : 'Joined in Webinar Privacy Mode (Host-Broadcast).',
+          ? 'Connected as Meeting Host (Mediasoup SFU Active).'
+          : 'Joined in Webinar Privacy Mode (Mediasoup SFU Active).',
         'info'
       );
+
+      // Initialize Mediasoup SFU Device & Transports
+      try {
+        await initMediasoupSession(socket, currentStream, startMuted, startVideoOff);
+
+        // Consume all existing active producers on SFU
+        if (Array.isArray(existingProducers)) {
+          existingProducers.forEach((item) => {
+            consumeProducer(item);
+          });
+        }
+      } catch (err) {
+        console.error('[Mediasoup] SFU initialization failed on snapshot:', err);
+        addToast('Media transport initialization failed. Please check network connection.', 'error');
+      }
+    });
+
+    // Mediasoup New Producer Notification (Broadcast from SFU)
+    socket.on('new-producer', (payload) => {
+      console.log(`[Mediasoup] Received new-producer from peer ${payload.producerPeerId} [Kind: ${payload.kind}]`);
+      consumeProducer(payload);
+    });
+
+    // Mediasoup Producer Closed
+    socket.on('producer-closed', ({ producerId, peerId }) => {
+      console.log(`[Mediasoup] Producer ${producerId} closed by peer ${peerId}`);
+      let targetConsumerId = null;
+      consumersRef.current.forEach((val, cId) => {
+        if (val.producerId === producerId) {
+          targetConsumerId = cId;
+        }
+      });
+
+      if (targetConsumerId) {
+        const item = consumersRef.current.get(targetConsumerId);
+        if (item) {
+          try { item.consumer.close(); } catch {}
+          consumersRef.current.delete(targetConsumerId);
+
+          const stream = peerMediaStreamsRef.current.get(peerId);
+          if (stream) {
+            stream.getTracks().forEach((track) => {
+              if (track.kind === item.kind) {
+                stream.removeTrack(track);
+              }
+            });
+            setRemoteStreams((prev) => ({
+              ...prev,
+              [peerId]: stream
+            }));
+          }
+        }
+      }
     });
 
     // Session token update on host migration
@@ -650,7 +710,6 @@ export function useWebRTC() {
     socket.on('room-settings-updated', ({ settings, updatedBy }) => {
       setRoomSettings(settings);
       addToast(`Meeting policies updated by ${updatedBy}`, 'info');
-      console.log(`[Admin] Room settings updated by ${updatedBy}:`, settings);
     });
 
     // Host Force Actions
@@ -659,6 +718,11 @@ export function useWebRTC() {
         localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = false));
       }
       setIsAudioMuted(true);
+      const audioProducer = producersRef.current.get('audio');
+      if (audioProducer && !audioProducer.closed) {
+        audioProducer.pause();
+        socketRef.current?.emit('pauseProducer', { producerId: audioProducer.id });
+      }
       addToast('Your microphone was muted by the meeting host.', 'warning');
     });
 
@@ -667,6 +731,11 @@ export function useWebRTC() {
         localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = false));
       }
       setIsVideoOff(true);
+      const videoProducer = producersRef.current.get('video');
+      if (videoProducer && !videoProducer.closed) {
+        videoProducer.pause();
+        socketRef.current?.emit('pauseProducer', { producerId: videoProducer.id });
+      }
       addToast('Your video camera was disabled by the meeting host.', 'warning');
     });
 
@@ -685,7 +754,6 @@ export function useWebRTC() {
       const amIHost = socket.id === newHostId;
       setIsHost(amIHost);
 
-      // Update roster so host badge and controls update immediately
       setRoster((prev) => {
         const next = { ...prev };
         Object.keys(next).forEach((id) => {
@@ -740,7 +808,18 @@ export function useWebRTC() {
             }
           } else if (delta.type === 'user-left') {
             delete next[delta.peerId];
-            cleanupPeer(delta.peerId);
+
+            // Clean up leaving peer's stream
+            const stream = peerMediaStreamsRef.current.get(delta.peerId);
+            if (stream) {
+              stream.getTracks().forEach((t) => t.stop());
+              peerMediaStreamsRef.current.delete(delta.peerId);
+            }
+            setRemoteStreams((prevStreams) => {
+              const copy = { ...prevStreams };
+              delete copy[delta.peerId];
+              return copy;
+            });
           } else if (delta.type === 'peer-media-toggle') {
             if (next[delta.peerId]) {
               next[delta.peerId] = {
@@ -776,183 +855,147 @@ export function useWebRTC() {
       });
     });
 
-    // WebRTC Offer Handler with Glare Recovery
-    socket.on('offer', async ({ callerPeerId, sdp, userName: callerName }) => {
-      console.log(`[WebRTC] Received offer from ${callerName} (${callerPeerId})`);
-      const pc = createPeerConnection(callerPeerId, callerName);
-
-      try {
-        // If an offer collision occurs (glare)
-        if (pc.signalingState !== 'stable') {
-          console.warn(`[WebRTC] Glare detected on offer from ${callerPeerId}, state: ${pc.signalingState}`);
-          if (socket.id < callerPeerId) {
-            console.log('[WebRTC] Impolite peer ignoring incoming offer');
-            return;
-          }
-          await pc.setLocalDescription({ type: 'rollback' });
-        }
-
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-        await processPendingCandidates(callerPeerId);
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        socket.emit('answer', {
-          targetPeerId: callerPeerId,
-          sdp: answer
-        });
-      } catch (err) {
-        console.error('[WebRTC] Offer handling error:', err);
-      }
+    // New in-call chat message
+    socket.on('new-chat-message', (chat) => {
+      setChatMessages((prev) => [...prev, chat]);
     });
+  }, [
+    personalSettings,
+    getMediaStream,
+    startVAD,
+    addToast,
+    initMediasoupSession,
+    consumeProducer
+  ]);
 
-    // WebRTC Answer Handler
-    socket.on('answer', async ({ responderPeerId, sdp }) => {
-      console.log(`[WebRTC] Received answer from ${responderPeerId}`);
-      const pc = peerConnections.current[responderPeerId];
-      if (pc) {
-        try {
-          if (pc.signalingState === 'have-local-offer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-            await processPendingCandidates(responderPeerId);
-          } else {
-            console.warn(`[WebRTC] Received answer in unexpected state: ${pc.signalingState}`);
-          }
-        } catch (err) {
-          console.error('[WebRTC] Answer error:', err);
-        }
-      }
-    });
+  // ---------------------------------------------------------------------------
+  // Media Toggles (Microphone, Camera, Screen Sharing, Raise Hand)
+  // ---------------------------------------------------------------------------
 
-    // ICE Candidate Handler with Buffering
-    socket.on('ice-candidate', async ({ senderPeerId, candidate }) => {
-      const pc = peerConnections.current[senderPeerId];
-      if (pc && pc.remoteDescription && pc.remoteDescription.type) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.warn('[WebRTC] ICE candidate error:', e);
-        }
-      } else {
-        if (!pendingCandidates.current[senderPeerId]) {
-          pendingCandidates.current[senderPeerId] = [];
-        }
-        pendingCandidates.current[senderPeerId].push(candidate);
-      }
-    });
-
-    socket.on('new-chat-message', (msg) => {
-      setChatMessages((prev) => [...prev, msg]);
-    });
-  }, [createPeerConnection, cleanupPeer, processPendingCandidates, getMediaStream, startVAD, personalSettings]);
-
-  // Audio Toggle with Host Policy Check
   const toggleAudio = useCallback(() => {
     if (!isHost && !roomSettings.allowMic && isAudioMuted) {
-      alert('Microphones are locked by the host.');
+      addToast('Microphones are restricted by the meeting host.', 'warning');
       return;
     }
 
-    if (localStreamRef.current) {
-      const audioTracks = localStreamRef.current.getAudioTracks();
-      if (audioTracks.length > 0) {
-        const nextState = !isAudioMuted;
-        audioTracks.forEach((track) => (track.enabled = !nextState));
-        setIsAudioMuted(nextState);
+    const nextState = !isAudioMuted;
+    setIsAudioMuted(nextState);
 
-        if (socketRef.current) {
-          socketRef.current.emit('toggle-media', {
-            isAudioMuted: nextState,
-            isVideoOff
-          });
-        }
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = !nextState;
+      });
+    }
+
+    const audioProducer = producersRef.current.get('audio');
+    if (audioProducer && !audioProducer.closed) {
+      if (nextState) {
+        audioProducer.pause();
+        socketRef.current?.emit('pauseProducer', { producerId: audioProducer.id });
+      } else {
+        audioProducer.resume();
+        socketRef.current?.emit('resumeProducer', { producerId: audioProducer.id });
       }
     }
-  }, [isAudioMuted, isVideoOff, isHost, roomSettings.allowMic]);
 
-  // Video Toggle with Host Policy Check
+    if (socketRef.current) {
+      socketRef.current.emit('toggle-media', {
+        isAudioMuted: nextState,
+        isVideoOff
+      });
+    }
+  }, [isAudioMuted, isVideoOff, isHost, roomSettings.allowMic, addToast]);
+
   const toggleVideo = useCallback(() => {
     if (!isHost && !roomSettings.allowCamera && isVideoOff) {
-      alert('Cameras are locked by the host.');
+      addToast('Cameras are restricted by the meeting host.', 'warning');
       return;
     }
+
+    const nextState = !isVideoOff;
+    setIsVideoOff(nextState);
 
     if (localStreamRef.current) {
-      const videoTracks = localStreamRef.current.getVideoTracks();
-      if (videoTracks.length > 0) {
-        const nextState = !isVideoOff;
-        videoTracks.forEach((track) => (track.enabled = !nextState));
-        setIsVideoOff(nextState);
+      localStreamRef.current.getVideoTracks().forEach((track) => {
+        track.enabled = !nextState;
+      });
+    }
 
-        if (socketRef.current) {
-          socketRef.current.emit('toggle-media', {
-            isAudioMuted,
-            isVideoOff: nextState
-          });
-        }
+    const videoProducer = producersRef.current.get('video');
+    if (videoProducer && !videoProducer.closed) {
+      if (nextState) {
+        videoProducer.pause();
+        socketRef.current?.emit('pauseProducer', { producerId: videoProducer.id });
+      } else {
+        videoProducer.resume();
+        socketRef.current?.emit('resumeProducer', { producerId: videoProducer.id });
       }
     }
-  }, [isAudioMuted, isVideoOff, isHost, roomSettings.allowCamera]);
 
-  // Screen Share Toggle with Host Policy Check
+    if (socketRef.current) {
+      socketRef.current.emit('toggle-media', {
+        isAudioMuted,
+        isVideoOff: nextState
+      });
+    }
+  }, [isVideoOff, isAudioMuted, isHost, roomSettings.allowCamera, addToast]);
+
   const toggleScreenShare = useCallback(async () => {
     if (!isHost && !roomSettings.allowScreenShare && !isScreenSharing) {
-      alert('Screen sharing is restricted to meeting hosts.');
+      addToast('Screen sharing is restricted by the meeting host.', 'warning');
       return;
     }
 
+    const sendTransport = sendTransportRef.current;
+    if (!sendTransport || sendTransport.closed) return;
+
     if (isScreenSharing) {
+      // Stop Screen Share
       if (screenTrackRef.current) {
         screenTrackRef.current.stop();
         screenTrackRef.current = null;
       }
+
+      const screenProducer = producersRef.current.get('screen');
+      if (screenProducer) {
+        screenProducer.close();
+        socketRef.current?.emit('closeProducer', { producerId: screenProducer.id });
+        producersRef.current.delete('screen');
+      }
+
       setIsScreenSharing(false);
-
-      if (socketRef.current) {
-        socketRef.current.emit('screen-share-status', { isSharing: false });
-      }
-
-      if (localStreamRef.current) {
-        const videoTrack = localStreamRef.current.getVideoTracks()[0];
-        Object.values(peerConnections.current).forEach((pc) => {
-          const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
-          if (sender && videoTrack) {
-            sender.replaceTrack(videoTrack);
-          }
-        });
-      }
+      socketRef.current?.emit('screen-share-status', { isSharing: false });
     } else {
+      // Start Screen Share
       try {
-        const displayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: { cursor: 'always' },
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            cursor: 'always'
+          },
           audio: false
         });
-        const screenTrack = displayStream.getVideoTracks()[0];
+
+        const screenTrack = stream.getVideoTracks()[0];
         screenTrackRef.current = screenTrack;
-        setIsScreenSharing(true);
 
-        if (socketRef.current) {
-          socketRef.current.emit('screen-share-status', { isSharing: true });
-        }
-
-        Object.values(peerConnections.current).forEach((pc) => {
-          const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
-          if (sender) {
-            sender.replaceTrack(screenTrack);
-          }
+        const screenProducer = await sendTransport.produce({
+          track: screenTrack,
+          appData: { mediaType: 'screen' }
         });
+        producersRef.current.set('screen', screenProducer);
+
+        setIsScreenSharing(true);
+        socketRef.current?.emit('screen-share-status', { isSharing: true });
 
         screenTrack.onended = () => {
           toggleScreenShare();
         };
       } catch (err) {
-        console.warn('[WebRTC] Screen sharing cancelled:', err);
+        console.warn('[Mediasoup] Screen sharing cancelled:', err);
       }
     }
-  }, [isScreenSharing, isHost, roomSettings.allowScreenShare]);
+  }, [isScreenSharing, isHost, roomSettings.allowScreenShare, addToast]);
 
-  // Raise Hand
   const toggleRaiseHand = useCallback(() => {
     const nextState = !isHandRaised;
     setIsHandRaised(nextState);
@@ -961,7 +1004,6 @@ export function useWebRTC() {
     }
   }, [isHandRaised]);
 
-  // Send Chat with Host Policy Check
   const sendChatMessage = useCallback((message) => {
     if (!message || !message.trim()) return;
     if (!isHost && !roomSettings.allowChat) {
@@ -973,8 +1015,9 @@ export function useWebRTC() {
     }
   }, [isHost, roomSettings.allowChat, addToast]);
 
-  // --- Admin Host Controls ---
-
+  // ---------------------------------------------------------------------------
+  // Admin Host Controls
+  // ---------------------------------------------------------------------------
   const updateRoomSettings = useCallback((newSettings) => {
     if (!isHost) return;
     setRoomSettings(newSettings);
@@ -1011,7 +1054,6 @@ export function useWebRTC() {
     }
   }, [isHost]);
 
-  // Host Admission actions
   const admitPeer = useCallback((targetPeerId) => {
     if (!isHost) return;
     if (socketRef.current) {
@@ -1033,7 +1075,6 @@ export function useWebRTC() {
     }
   }, [isHost]);
 
-  // Waiting participant action
   const cancelWaiting = useCallback(() => {
     if (socketRef.current) {
       socketRef.current.emit('cancel-waiting');
@@ -1044,8 +1085,6 @@ export function useWebRTC() {
     setAdmissionStatus(null);
   }, []);
 
-  // --- Personal Settings Updates ---
-
   const updatePersonalSettings = useCallback(async (partial) => {
     const updated = { ...personalSettings, ...partial };
     setPersonalSettings(updated);
@@ -1055,7 +1094,6 @@ export function useWebRTC() {
       console.warn('Failed to save personal settings to localStorage:', e);
     }
 
-    // Dynamic hardware or resolution switch
     if (
       partial.audioInputDeviceId !== undefined ||
       partial.videoInputDeviceId !== undefined ||
@@ -1072,24 +1110,60 @@ export function useWebRTC() {
         const newVideoTrack = newStream.getVideoTracks()[0];
         const newAudioTrack = newStream.getAudioTracks()[0];
 
-        Object.values(peerConnections.current).forEach((pc) => {
-          if (newVideoTrack) {
-            const videoSender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
-            if (videoSender) videoSender.replaceTrack(newVideoTrack);
+        const videoProducer = producersRef.current.get('video');
+        if (videoProducer && newVideoTrack) {
+          try {
+            await videoProducer.replaceTrack({ track: newVideoTrack });
+          } catch (e) {
+            console.warn('[Mediasoup] replaceTrack video error:', e);
           }
-          if (newAudioTrack) {
-            const audioSender = pc.getSenders().find((s) => s.track && s.track.kind === 'audio');
-            if (audioSender) audioSender.replaceTrack(newAudioTrack);
+        }
+
+        const audioProducer = producersRef.current.get('audio');
+        if (audioProducer && newAudioTrack) {
+          try {
+            await audioProducer.replaceTrack({ track: newAudioTrack });
+          } catch (e) {
+            console.warn('[Mediasoup] replaceTrack audio error:', e);
           }
-        });
+        }
       }
     }
   }, [personalSettings, getMediaStream, isAudioMuted, isVideoOff]);
 
-  // Leave Room
+  // ---------------------------------------------------------------------------
+  // Leave Room & Cleanup
+  // ---------------------------------------------------------------------------
   const leaveRoom = useCallback(() => {
-    Object.keys(peerConnections.current).forEach((peerId) => cleanupPeer(peerId));
+    // Close local producers
+    producersRef.current.forEach((producer) => {
+      try { producer.close(); } catch {}
+    });
+    producersRef.current.clear();
 
+    // Close consumers
+    consumersRef.current.forEach(({ consumer }) => {
+      try { consumer.close(); } catch {}
+    });
+    consumersRef.current.clear();
+
+    // Close SFU transports
+    if (sendTransportRef.current && !sendTransportRef.current.closed) {
+      try { sendTransportRef.current.close(); } catch {}
+      sendTransportRef.current = null;
+    }
+    if (recvTransportRef.current && !recvTransportRef.current.closed) {
+      try { recvTransportRef.current.close(); } catch {}
+      recvTransportRef.current = null;
+    }
+
+    // Stop and clear remote media tracks
+    peerMediaStreamsRef.current.forEach((stream) => {
+      stream.getTracks().forEach((t) => t.stop());
+    });
+    peerMediaStreamsRef.current.clear();
+
+    // Stop local media
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
@@ -1125,13 +1199,36 @@ export function useWebRTC() {
     setIsWaitingForAdmission(false);
     setAdmissionStatus(null);
     setWaitingPeers([]);
-  }, [cleanupPeer]);
+  }, []);
 
   useEffect(() => {
     return () => leaveRoom();
   }, [leaveRoom]);
 
   // Scalability Telemetry
+  const peerList = useMemo(() => Object.values(roster), [roster]);
+  const totalPages = Math.max(1, Math.ceil(peerList.length / pageSize));
+
+  const visiblePeerIds = useMemo(() => {
+    const ids = new Set();
+    if (!isHost) {
+      if (hostId && roster[hostId]) {
+        ids.add(hostId);
+      }
+      return ids;
+    }
+    const startIndex = (currentPage - 1) * pageSize;
+    const pageSlice = peerList.slice(startIndex, startIndex + pageSize);
+    pageSlice.forEach((p) => ids.add(p.peerId));
+    if (activeSpeakerId && roster[activeSpeakerId]) {
+      ids.add(activeSpeakerId);
+    }
+    if (pinnedPeerId && roster[pinnedPeerId]) {
+      ids.add(pinnedPeerId);
+    }
+    return ids;
+  }, [isHost, hostId, peerList, currentPage, pageSize, activeSpeakerId, pinnedPeerId, roster]);
+
   const telemetry = useMemo(() => {
     const totalParticipants = 1 + Object.keys(roster).length;
     const activeStreams = Object.keys(remoteStreams).length;

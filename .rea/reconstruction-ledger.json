@@ -17,19 +17,19 @@
     {
       "id": "SIG-002",
       "category": "Signaling & Protocol",
-      "title": "SDP Offer / Answer & ICE Candidate Relay",
-      "target_behavior": "WebRTC session negotiation via WebSocket/Socket.io relay exchanging JSEP SDP descriptions and STUN ICE candidates between peers.",
+      "title": "Mediasoup SFU Signaling (Router, Transports, Produce/Consume)",
+      "target_behavior": "Centralized SFU session orchestration via Mediasoup. Clients negotiate router RTP capabilities, allocate send/recv WebRtcTransports, exchange DTLS parameters, and produce/consume tracks.",
       "implementation_status": "IMPLEMENTED",
-      "evidence": "server/index.js: offer, answer, ice-candidate socket handlers",
+      "evidence": "server/index.js: getRouterRtpCapabilities, createWebRtcTransport, connectWebRtcTransport, produce, consume handlers; verified via tests/integration.test.mjs",
       "verified": true
     },
     {
       "id": "SCALE-001",
       "category": "Scalability Architecture",
-      "title": "Host-Broadcast Star Topology & Virtualized Host Viewport (Webinar Privacy Mode)",
-      "target_behavior": "Eliminates O(N^2) mesh scaling bottlenecks without an external SFU by enforcing a Host-Broadcast Star Topology. Non-host participants establish exactly 1 WebRTC connection (directly to the host) and are privacy-blinded from other participants. The host client uses paginated viewport virtualization (6 tiles per page) + active speaker + pinned peer, ensuring low client-side CPU/bandwidth.",
+      "title": "Mediasoup Centralized SFU with 3-Layer Simulcast & Webinar Privacy Isolation",
+      "target_behavior": "Replaces P2P mesh and star topologies with an enterprise-grade C++ Mediasoup SFU worker per clustered process. Dedicated Room Routers forward streams selectively. Video producers transmit 3 simulcast layers (180p, 360p, 720p). Host video/audio is forwarded to all participants while non-host feeds are routed strictly to the Host.",
       "implementation_status": "IMPLEMENTED",
-      "evidence": "client/src/hooks/useWebRTC.js (star-topology peer filtering), server/index.js (room-snapshot privacy filtering & targeted host-only deltas), verified via test-fixes.js",
+      "evidence": "server/index.js (Mediasoup worker, room router, transport orchestration), client/src/hooks/useWebRTC.js (mediasoup-client Device, stable Refs storage, 3-layer simulcast), verified via tests/integration.test.mjs",
       "verified": true
     },
     {

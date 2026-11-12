@@ -43,3 +43,4 @@ USER node
 
 # Start cluster manager in production or standalone server
 CMD ["node", "cluster.js"]
+
