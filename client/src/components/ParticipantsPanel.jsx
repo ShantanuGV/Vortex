@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { X, Mic, MicOff, Video, VideoOff, Hand, Search, ShieldCheck, UserX, Clock, Lock } from 'lucide-react';
+import { X, Mic, MicOff, Video, VideoOff, Hand, Search, ShieldCheck, UserX, Clock, Lock, Shield, ArrowRightLeft } from 'lucide-react';
 import { getParticipantColor } from '../utils/colors';
 
 export default function ParticipantsPanel({
   userName,
   isHost,
+  isCoHost = false,
   hostId,
   isAudioMuted,
   isVideoOff,
@@ -17,6 +18,8 @@ export default function ParticipantsPanel({
   onHostMuteAll,
   onHostMutePeer,
   onHostKickPeer,
+  onAssignCoHost = () => {},
+  onTransferHost = () => {},
   onClose
 }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,6 +36,8 @@ export default function ParticipantsPanel({
     if (!a.isHandRaised && b.isHandRaised) return 1;
     if (a.isHost && !b.isHost) return -1;
     if (!a.isHost && b.isHost) return 1;
+    if (a.isCoHost && !b.isCoHost) return -1;
+    if (!a.isCoHost && b.isCoHost) return 1;
     if (a.role === 'speaker' && b.role !== 'speaker') return -1;
     if (a.role !== 'speaker' && b.role === 'speaker') return 1;
     return a.userName.localeCompare(b.userName);
@@ -461,8 +466,8 @@ export default function ParticipantsPanel({
                   <div style={{ fontSize: '14px', fontWeight: '500', color: '#F4F3EF' }}>
                     {peer.userName}
                   </div>
-                  <div style={{ fontSize: '11px', color: peer.isHost ? '#9EAB9D' : '#8A9497', marginTop: '2px' }}>
-                    {peer.isHost ? 'Meeting host' : peer.role === 'speaker' ? 'Active Speaker' : 'Audience'}
+                  <div style={{ fontSize: '11px', color: peer.isHost ? '#9EAB9D' : peer.isCoHost ? '#9EAB9D' : '#8A9497', marginTop: '2px' }}>
+                    {peer.isHost ? 'Meeting host' : peer.isCoHost ? 'Co-host' : peer.role === 'speaker' ? 'Active Speaker' : 'Audience'}
                   </div>
                 </div>
               </div>
@@ -475,6 +480,58 @@ export default function ParticipantsPanel({
                 {/* Host individual participant controls */}
                 {!peer.isHost && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
+                    {/* Primary host only: Co-Host toggle (F-13) */}
+                    {isHost && (
+                      <button
+                        type="button"
+                        onClick={() => onAssignCoHost(peer.peerId, !peer.isCoHost)}
+                        title={peer.isCoHost ? 'Remove co-host privileges' : 'Make co-host'}
+                        style={{
+                          background: peer.isCoHost ? 'rgba(158, 171, 157, 0.25)' : 'none',
+                          border: '1px solid #3A4245',
+                          borderRadius: '6px',
+                          color: peer.isCoHost ? '#9EAB9D' : '#C5CCC4',
+                          cursor: 'pointer',
+                          padding: '4px 6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          fontSize: '11px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        <Shield size={12} /> {peer.isCoHost ? 'Co-Host' : '+ Co-Host'}
+                      </button>
+                    )}
+
+                    {/* Primary host only: Transfer host (F-12) */}
+                    {isHost && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Transfer host authority to ${peer.userName}? You will become a regular participant.`)) {
+                            onTransferHost(peer.peerId);
+                          }
+                        }}
+                        title={`Make ${peer.userName} the meeting host`}
+                        style={{
+                          background: 'none',
+                          border: '1px solid #3A4245',
+                          borderRadius: '6px',
+                          color: '#C5CCC4',
+                          cursor: 'pointer',
+                          padding: '4px 6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          fontSize: '11px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        <ArrowRightLeft size={12} /> Make Host
+                      </button>
+                    )}
+
                     {/* Individual Mute Peer Button */}
                     {!peer.isAudioMuted && (
                       <button

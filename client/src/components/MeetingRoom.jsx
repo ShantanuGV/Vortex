@@ -8,12 +8,15 @@ import StatsHUD from './StatsHUD';
 import SettingsModal from './SettingsModal';
 import ToastContainer from './ToastContainer';
 import ShortcutsModal from './ShortcutsModal';
+import StageHeader from './StageHeader';
+import HostConsoleDrawer from './HostConsoleDrawer';
 
 export default function MeetingRoom({
   localStream,
   userName,
   roomId,
   isHost,
+  isCoHost = false,
   hostId,
   pinnedPeerId,
   onSetPinnedPeerId = () => {},
@@ -35,6 +38,8 @@ export default function MeetingRoom({
   toasts = [],
   onDismissToast = () => {},
   chatMessages,
+  reactions = [],
+  onSendReaction = () => {},
   roomSettings,
   personalSettings,
   waitingPeers = [],
@@ -46,6 +51,11 @@ export default function MeetingRoom({
   onHostMutePeer,
   onHostKickPeer,
   onHostEndMeeting,
+  onAssignCoHost = () => {},
+  onTransferHost = () => {},
+  stageAnnouncement = null,
+  onBroadcastAnnouncement = () => {},
+  onHostLowerAllHands = () => {},
   onUpdatePersonalSettings,
   onToggleAudio,
   onToggleVideo,
@@ -58,6 +68,7 @@ export default function MeetingRoom({
   const [showStats, setShowStats] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showHostConsole, setShowHostConsole] = useState(false);
 
   // Global Keyboard Shortcuts (Ctrl+D, Ctrl+E, Ctrl+H, ?, Esc)
   useEffect(() => {
@@ -94,6 +105,7 @@ export default function MeetingRoom({
   };
 
   const participantCount = 1 + Object.keys(roster).length;
+  const raisedHandsCount = Object.values(roster).filter((p) => p.isHandRaised).length;
   const activeSpeaker = activeSpeakerId ? roster[activeSpeakerId]?.userName : null;
 
   return (
@@ -109,6 +121,39 @@ export default function MeetingRoom({
         position: 'relative'
       }}
     >
+      {/* Executive Stage Header */}
+      <StageHeader
+        roomId={roomId}
+        isHost={isHost}
+        participantCount={participantCount}
+        raisedHandsCount={raisedHandsCount}
+        stageAnnouncement={stageAnnouncement}
+        onClearAnnouncement={() => onBroadcastAnnouncement('')}
+        onOpenAnnouncementModal={() => setShowHostConsole(true)}
+        onOpenHostConsole={() => setShowHostConsole(true)}
+        onLowerAllHands={onHostLowerAllHands}
+        onToggleStats={() => setShowStats((prev) => !prev)}
+        showStats={showStats}
+        isLocked={roomSettings?.isLocked}
+      />
+
+      {/* Executive Host Management Console Drawer */}
+      {isHost && (
+        <HostConsoleDrawer
+          isOpen={showHostConsole}
+          onClose={() => setShowHostConsole(false)}
+          roomSettings={roomSettings}
+          onUpdateRoomSettings={onUpdateRoomSettings}
+          stageAnnouncement={stageAnnouncement}
+          onBroadcastAnnouncement={onBroadcastAnnouncement}
+          onClearAnnouncement={() => onBroadcastAnnouncement('')}
+          onLowerAllHands={onHostLowerAllHands}
+          onHostMuteAll={onHostMuteAll}
+          onHostEndMeeting={onHostEndMeeting}
+          participantCount={participantCount}
+          raisedHandsCount={raisedHandsCount}
+        />
+      )}
       {/* Settings Modal (Meeting Admin & Personal Settings) */}
       <SettingsModal
         isOpen={showSettings}
@@ -271,15 +316,17 @@ export default function MeetingRoom({
             chatMessages={chatMessages}
             isHost={isHost}
             roomSettings={roomSettings}
+            roster={roster}
             onSendMessage={onSendMessage}
             onClose={() => setActivePanel(null)}
           />
         )}
 
-        {activePanel === 'people' && (
+        {isHost && activePanel === 'people' && (
           <ParticipantsPanel
             userName={userName}
             isHost={isHost}
+            isCoHost={isCoHost}
             hostId={hostId}
             isAudioMuted={isAudioMuted}
             isVideoOff={isVideoOff}
@@ -292,6 +339,8 @@ export default function MeetingRoom({
             onHostMuteAll={onHostMuteAll}
             onHostMutePeer={onHostMutePeer}
             onHostKickPeer={onHostKickPeer}
+            onAssignCoHost={onAssignCoHost}
+            onTransferHost={onTransferHost}
             onClose={() => setActivePanel(null)}
           />
         )}
@@ -303,6 +352,56 @@ export default function MeetingRoom({
           />
         )}
       </div>
+
+      {/* Real-time Floating Emoji Reactions (F-01) */}
+      {reactions && reactions.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '100px',
+            left: 0,
+            right: 0,
+            pointerEvents: 'none',
+            zIndex: 60,
+            overflow: 'hidden',
+            height: '240px'
+          }}
+        >
+          <style>
+            {`
+              @keyframes floatReactionUp {
+                0% { transform: translateY(80px) scale(0.6); opacity: 0; }
+                20% { transform: translateY(0px) scale(1.15); opacity: 1; }
+                80% { transform: translateY(-120px) scale(1); opacity: 0.9; }
+                100% { transform: translateY(-200px) scale(0.85); opacity: 0; }
+              }
+            `}
+          </style>
+          {reactions.map((rx) => (
+            <div
+              key={rx.id}
+              style={{
+                position: 'absolute',
+                bottom: '10px',
+                left: `${20 + ((rx.timestamp % 60) * 1.0)}%`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                backgroundColor: 'rgba(46, 53, 56, 0.92)',
+                border: '1px solid #3A4245',
+                borderRadius: '24px',
+                padding: '6px 14px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(6px)',
+                animation: 'floatReactionUp 2.8s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+              }}
+            >
+              <span style={{ fontSize: '22px' }}>{rx.emoji}</span>
+              <span style={{ fontSize: '12px', fontWeight: '600', color: '#F4F3EF' }}>{rx.userName}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Keyboard Shortcuts Guide Dialog */}
       <ShortcutsModal
@@ -334,6 +433,7 @@ export default function MeetingRoom({
         onToggleVideo={onToggleVideo}
         onToggleScreenShare={onToggleScreenShare}
         onToggleRaiseHand={onToggleRaiseHand}
+        onSendReaction={onSendReaction}
         onTogglePanel={handleTogglePanel}
         onToggleStats={() => setShowStats(!showStats)}
         onOpenSettings={() => setShowSettings(true)}

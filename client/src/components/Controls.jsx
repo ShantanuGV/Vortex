@@ -16,7 +16,8 @@ import {
   Settings as SettingsIcon,
   ShieldCheck,
   Wifi,
-  Keyboard
+  Keyboard,
+  Smile
 } from 'lucide-react';
 
 export default function Controls({
@@ -36,6 +37,7 @@ export default function Controls({
   onToggleVideo,
   onToggleScreenShare,
   onToggleRaiseHand,
+  onSendReaction = () => {},
   onTogglePanel,
   onToggleStats,
   onOpenSettings,
@@ -44,6 +46,7 @@ export default function Controls({
 }) {
   const [currentTime, setCurrentTime] = useState('');
   const [copied, setCopied] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
 
   useEffect(() => {
     const updateClock = () => {
@@ -261,6 +264,64 @@ export default function Controls({
           <Hand size={20} />
         </button>
 
+        {/* Emoji Reactions (F-01) */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setShowReactions(!showReactions)}
+            title="Send a reaction"
+            style={buttonStyle(showReactions)}
+          >
+            <Smile size={20} />
+          </button>
+
+          {showReactions && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '60px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                backgroundColor: '#2E3538',
+                border: '1px solid #3A4245',
+                borderRadius: '30px',
+                padding: '6px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                zIndex: 50,
+                backdropFilter: 'blur(8px)'
+              }}
+            >
+              {['👍', '🎉', '❤️', '😂', '😮', '🙌', '👏', '🔥'].map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => {
+                    onSendReaction(emoji);
+                    setShowReactions(false);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '20px',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    borderRadius: '50%',
+                    transition: 'transform 0.15s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.3)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Leave Call Button */}
         <button
           onClick={onLeaveRoom}
@@ -317,44 +378,45 @@ export default function Controls({
           <Info size={22} />
         </button>
 
-        {/* Participants Panel */}
-        <button
-          onClick={() => onTogglePanel('people')}
-          title={isHost ? 'Participants' : 'Meeting Host & You'}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: activePanel === 'people' ? '#9EAB9D' : '#C5CCC4',
-            cursor: 'pointer',
-            padding: '8px',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            position: 'relative',
-            transition: 'color 0.2s'
-          }}
-        >
-          <Users size={22} />
-          {/* Only host sees total participant count */}
-          {isHost && participantCount > 0 && (
-            <span
-              style={{
-                position: 'absolute',
-                top: '2px',
-                right: '2px',
-                backgroundColor: '#9EAB9D',
-                color: '#252B2D',
-                fontSize: '11px',
-                fontWeight: '700',
-                borderRadius: '10px',
-                padding: '1px 5px',
-                lineHeight: '14px'
-              }}
-            >
-              {participantCount}
-            </span>
-          )}
-        </button>
+        {/* Participants Panel - Host Only */}
+        {isHost && (
+          <button
+            onClick={() => onTogglePanel('people')}
+            title="Participants"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: activePanel === 'people' ? '#9EAB9D' : '#C5CCC4',
+              cursor: 'pointer',
+              padding: '8px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              position: 'relative',
+              transition: 'color 0.2s'
+            }}
+          >
+            <Users size={22} />
+            {participantCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  right: '2px',
+                  backgroundColor: '#9EAB9D',
+                  color: '#252B2D',
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  borderRadius: '10px',
+                  padding: '1px 5px',
+                  lineHeight: '14px'
+                }}
+              >
+                {participantCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* Chat Panel */}
         <button

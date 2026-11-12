@@ -96,6 +96,34 @@ export default function VideoGrid({
 
         {/* Primary Stage: The Meeting Host (Camera or Screen Share) */}
         <div style={{ flex: 1, height: '100%', minWidth: 0, position: 'relative' }}>
+          {hostPeer && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '16px',
+                left: '16px',
+                backgroundColor: 'rgba(37, 43, 45, 0.92)',
+                border: '1px solid #9EAB9D',
+                borderRadius: '20px',
+                padding: '6px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                zIndex: 10,
+                backdropFilter: 'blur(8px)',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.45)'
+              }}
+            >
+              <span style={{ fontSize: '13px' }}>👑</span>
+              <span style={{ fontSize: '12px', fontWeight: '700', color: '#F4F3EF', letterSpacing: '0.5px' }}>
+                PRESENTER
+              </span>
+              <span style={{ color: '#9EAB9D', fontSize: '12px', fontWeight: '600' }}>
+                · {hostPeer.userName}
+              </span>
+            </div>
+          )}
+
           {isHostScreenSharing && hostPeer ? (
             <VideoTile
               stream={hostScreenStream}
@@ -159,7 +187,7 @@ export default function VideoGrid({
                 <ShieldCheck size={36} />
               </div>
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '18px', fontWeight: '600', fontFamily: "var(--font-display)" }}>
+                <div style={{ fontSize: '18px', fontWeight: '600', fontFamily: "var(--font-display, 'Playfair Display', serif)" }}>
                   Connecting to Meeting Host...
                 </div>
                 <div style={{ fontSize: '13px', color: '#9EAB9D', marginTop: '4px' }}>
@@ -182,7 +210,29 @@ export default function VideoGrid({
           }}
         >
           {isHostScreenSharing && hostPeer && (
-            <div style={{ flex: 1, minHeight: 0 }}>
+            <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '12px',
+                  left: '12px',
+                  backgroundColor: 'rgba(37, 43, 45, 0.85)',
+                  border: '1px solid #3A4245',
+                  borderRadius: '14px',
+                  padding: '4px 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  zIndex: 10,
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: '#F4F3EF',
+                  backdropFilter: 'blur(4px)'
+                }}
+              >
+                <span style={{ color: '#9EAB9D' }}>👑</span>
+                <span>Host Camera</span>
+              </div>
               <VideoTile
                 stream={hostCameraStream}
                 userName={hostPeer.userName}
@@ -200,7 +250,36 @@ export default function VideoGrid({
               />
             </div>
           )}
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+            <div
+              style={{
+                position: 'absolute',
+                top: '12px',
+                left: '12px',
+                backgroundColor: 'rgba(37, 43, 45, 0.85)',
+                border: '1px solid #3A4245',
+                borderRadius: '14px',
+                padding: '4px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                zIndex: 10,
+                fontSize: '11px',
+                fontWeight: '600',
+                color: '#F4F3EF',
+                backdropFilter: 'blur(4px)'
+              }}
+            >
+              <span
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  backgroundColor: '#9EAB9D'
+                }}
+              />
+              <span>You (Audience)</span>
+            </div>
             <VideoTile
               stream={localStream}
               userName={userName}

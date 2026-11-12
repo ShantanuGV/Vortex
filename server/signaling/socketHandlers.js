@@ -1,5 +1,5 @@
 import { AuthGuard } from '../security/authGuard.js';
-import { PermissionService, MEETING_MODES } from '../security/permissionService.js';
+import { PermissionService, MEETING_MODES, ROLES } from '../security/permissionService.js';
 import { sanitizeRoomId, sanitizeString, sanitizeChatMessage } from '../security/sanitizer.js';
 import { SubscriptionEngine } from '../subscription/subscriptionEngine.js';
 import { SimulcastManager } from '../media/simulcastManager.js';
@@ -99,6 +99,7 @@ export function registerSocketHandlers({
       hostSecret: isHost ? room.hostSecret : null,
       hostId: room.hostId,
       settings: room.settings,
+      announcement: room.announcement || null,
       totalParticipants: visibleTotal,
       participants: visibleParticipants,
       waitingList,
@@ -126,7 +127,7 @@ export function registerSocketHandlers({
   }
 
   // 1. Join Room Flow
-  socket.on('join-room', async ({ roomId, userName, isAudioMuted = false, isVideoOff = false, hostSecret = null, reconnectToken = null }) => {
+  socket.on('join-room', async ({ roomId, userName, isAudioMuted = false, isVideoOff = false, hostSecret = null, reconnectToken = null, password = '' }) => {
     const cleanRoomId = sanitizeRoomId(roomId);
     if (!cleanRoomId) {
       return socket.emit('join-error', { message: 'Invalid meeting code.' });
@@ -149,6 +150,18 @@ export function registerSocketHandlers({
       if (restored) {
         metrics.increment('reconnectionsTotal', 1);
         console.log(`[Auth] Participant session restored via reconnectToken for ${cleanUserName} (${socket.id})`);
+      }
+    }
+
+    // Meeting Password / PIN Check
+    if (room.settings.password && room.hostId && socket.id !== room.hostId && !isHostRestoration) {
+      const expectedPassword = String(room.settings.password).trim();
+      const providedPassword = String(password || '').trim();
+      if (expectedPassword && expectedPassword !== providedPassword) {
+        return socket.emit('join-error', {
+          message: providedPassword ? 'Incorrect meeting password.' : 'This meeting requires a password.',
+          requiresPassword: true
+        });
       }
     }
 
@@ -353,6 +366,123 @@ export function registerSocketHandlers({
 
     io.to(room.id).emit('meeting-ended-by-host', { message: 'The meeting was ended for everyone by the host.' });
     await roomManager.destroyRoom(room.id);
+  });
+
+  // 4c. Host Feature: Assign Co-Host (F-13)
+  socket.on('assign-cohost', ({ targetPeerId, isCoHost }) => {
+    const room = roomManager.getRoom(socket.roomId);
+    if (!room || room.hostId !== socket.id) {
+      return socket.emit('admin-error', { message: 'Only the meeting host can assign co-hosts.' });
+    }
+    const targetParticipant = room.participants.get(targetPeerId);
+    if (!targetParticipant) {
+      return socket.emit('admin-error', { message: 'Participant not found.' });
+    }
+
+    targetParticipant.role = isCoHost ? ROLES.CO_HOST : ROLES.PARTICIPANT;
+    targetParticipant.isCoHost = Boolean(isCoHost);
+
+    const targetSocket = io.sockets.sockets.get(targetPeerId);
+    if (targetSocket) {
+      targetSocket.emit('cohost-status-changed', { isCoHost: Boolean(isCoHost) });
+    }
+
+    roomManager.queueDelta(room, {
+      type: 'participant-updated',
+      peerId: targetPeerId,
+      updates: {
+        role: targetParticipant.role,
+        isCoHost: targetParticipant.isCoHost
+      }
+    }, io);
+  });
+
+  // 4d. Host Feature: Manual Host Transfer (F-12)
+  socket.on('transfer-host', ({ targetPeerId }) => {
+    const room = roomManager.getRoom(socket.roomId);
+    if (!room || room.hostId !== socket.id) {
+      return socket.emit('admin-error', { message: 'Only the current host can transfer meeting ownership.' });
+    }
+    const targetParticipant = room.participants.get(targetPeerId);
+    if (!targetParticipant) {
+      return socket.emit('admin-error', { message: 'Target participant not found in room.' });
+    }
+
+    const oldHostParticipant = room.participants.get(socket.id);
+    if (oldHostParticipant) {
+      oldHostParticipant.isHost = false;
+      oldHostParticipant.role = ROLES.PARTICIPANT;
+    }
+
+    room.hostId = targetPeerId;
+    targetParticipant.isHost = true;
+    targetParticipant.role = ROLES.HOST;
+    targetParticipant.isCoHost = false;
+
+    // Regenerate host secret for new host
+    room.hostSecret = crypto.randomBytes(24).toString('hex');
+
+    const newHostSocket = io.sockets.sockets.get(targetPeerId);
+    if (newHostSocket) {
+      newHostSocket.emit('host-token-update', { hostSecret: room.hostSecret });
+    }
+    socket.emit('host-token-update', { hostSecret: null });
+
+    io.to(room.id).emit('host-changed', {
+      hostId: targetPeerId,
+      hostName: targetParticipant.userName,
+      reason: 'manual-transfer'
+    });
+
+    roomManager.queueDelta(room, {
+      type: 'host-transferred',
+      oldHostId: socket.id,
+      newHostId: targetPeerId
+    }, io);
+  });
+
+  // 4e. Collaboration Feature: Emoji Reactions (F-01)
+  socket.on('send-reaction', ({ emoji }) => {
+    const room = roomManager.getRoom(socket.roomId);
+    if (!room) return;
+
+    const allowedEmojis = ['👍', '🎉', '❤️', '😂', '😮', '🙌', '👏', '🔥'];
+    if (!allowedEmojis.includes(emoji)) return;
+
+    const payload = {
+      id: `rx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      peerId: socket.id,
+      userName: socket.userName || 'Participant',
+      emoji,
+      timestamp: Date.now()
+    };
+
+    io.to(room.id).emit('reaction-received', payload);
+  });
+
+  // 4f. Host Stage Announcement (Executive Broadcast)
+  socket.on('broadcast-announcement', ({ message }) => {
+    const room = roomManager.getRoom(socket.roomId);
+    const auth = AuthGuard.validateAdminAction(room, socket.id);
+    if (!auth.ok) return socket.emit('admin-error', { message: auth.error });
+
+    const clean = sanitizeString(message, 300);
+    room.announcement = clean || null;
+    io.to(room.id).emit('stage-announcement-updated', { announcement: room.announcement });
+  });
+
+  // 4g. Host Lower All Hands (1-Click Moderation)
+  socket.on('host-lower-all-hands', () => {
+    const room = roomManager.getRoom(socket.roomId);
+    const auth = AuthGuard.validateAdminAction(room, socket.id);
+    if (!auth.ok) return socket.emit('admin-error', { message: auth.error });
+
+    room.participants.forEach((p) => {
+      p.isHandRaised = false;
+    });
+    io.to(room.id).emit('room-deltas', [{
+      type: 'all-hands-lowered'
+    }]);
   });
 
   // 5. Paginated Peers
@@ -719,13 +849,16 @@ export function registerSocketHandlers({
   });
 
   // 7. Dynamic Subscription & Simulcast Layer Optimization Request
-  socket.on('update-subscription-preferences', async ({ pinnedPeerId = null, visiblePeerIds = [], networkQuality }) => {
+  socket.on('update-subscription-preferences', async ({ pinnedPeerId = null, visiblePeerIds = [], networkQuality, lowDataMode = false }) => {
     const room = roomManager.getRoom(socket.roomId);
     if (!room) return;
 
     const tracker = getSpeakerTracker(room.id);
     const activeSpeakerId = tracker.getCurrentSpeaker();
     const recentSpeakerIds = tracker.getRecentSpeakers();
+
+    // When client enables Low Data Mode, force networkQuality to 'poor' to drop downstream to layer 0 / pause offscreen
+    const effectiveQuality = lowDataMode ? 'poor' : networkQuality;
 
     const desiredSubscriptions = subscriptionEngine.evaluateSubscriptions({
       receiverId: socket.id,
@@ -734,7 +867,7 @@ export function registerSocketHandlers({
       activeSpeakerId,
       recentSpeakerIds,
       visiblePeerIds: new Set(visiblePeerIds),
-      networkQuality
+      networkQuality: effectiveQuality
     });
 
     // Apply layers & pause unselected streams
@@ -838,8 +971,8 @@ export function registerSocketHandlers({
     }
   });
 
-  // 12. Chat with Sanitization
-  socket.on('send-chat', ({ message }) => {
+  // 12. Chat with Sanitization & Private Direct Messaging (F-10)
+  socket.on('send-chat', ({ message, targetPeerId }) => {
     const room = roomManager.getRoom(socket.roomId);
     if (!room) return;
 
@@ -851,16 +984,31 @@ export function registerSocketHandlers({
     const cleanMessage = sanitizeChatMessage(message, 1000);
     if (!cleanMessage) return;
 
+    const targetParticipant = targetPeerId ? room.participants.get(targetPeerId) : null;
+    const isPrivate = Boolean(targetParticipant);
+
     const chatPayload = {
       id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
       senderId: socket.id,
       senderName: socket.userName,
       isHost,
       message: cleanMessage,
+      targetPeerId: isPrivate ? targetPeerId : null,
+      targetName: isPrivate ? targetParticipant.userName : null,
+      isPrivate,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    io.to(room.id).emit('new-chat-message', chatPayload);
+    if (isPrivate) {
+      // Direct message: deliver only to sender and recipient
+      socket.emit('new-chat-message', chatPayload);
+      const targetSocket = io.sockets.sockets.get(targetPeerId);
+      if (targetSocket) {
+        targetSocket.emit('new-chat-message', chatPayload);
+      }
+    } else {
+      io.to(room.id).emit('new-chat-message', chatPayload);
+    }
   });
 
   // 13. Disconnect Handling & Grace Period

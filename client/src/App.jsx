@@ -22,6 +22,7 @@ export default function App() {
     toasts,
     removeToast,
     isHost,
+    isCoHost,
     hostId,
     roomSettings,
     personalSettings,
@@ -30,8 +31,16 @@ export default function App() {
     hostMutePeer,
     hostKickPeer,
     hostEndMeeting,
+    assignCoHost,
+    transferHost,
+    sendReaction,
+    reactions,
+    passwordRequired,
     pinnedPeerId,
     setPinnedPeerId,
+    stageAnnouncement,
+    broadcastAnnouncement,
+    hostLowerAllHands,
     // Host Admission / Waiting Room
     isWaitingForAdmission,
     admissionStatus,
@@ -59,13 +68,14 @@ export default function App() {
     leaveRoom
   } = useWebRTC();
 
-  const handleJoinRoom = async ({ roomId: id, userName: name, isAudioMuted: audioMuted, isVideoOff: videoOff }) => {
+  const handleJoinRoom = async ({ roomId: id, userName: name, isAudioMuted: audioMuted, isVideoOff: videoOff, password = '' }) => {
     setHasRequestedJoin(true);
     await joinRoom({
       roomId: id,
       userName: name,
       initialAudioMuted: audioMuted,
-      initialVideoOff: videoOff
+      initialVideoOff: videoOff,
+      password
     });
   };
 
@@ -91,6 +101,7 @@ export default function App() {
           isWaiting={isWaitingForAdmission}
           admissionStatus={admissionStatus}
           deniedReason={deniedReason}
+          passwordRequired={passwordRequired}
           onCancelWaiting={handleCancelWaiting}
         />
       ) : (
@@ -99,6 +110,7 @@ export default function App() {
           userName={userName}
           roomId={roomId}
           isHost={isHost}
+          isCoHost={isCoHost}
           hostId={hostId}
           pinnedPeerId={pinnedPeerId}
           onSetPinnedPeerId={setPinnedPeerId}
@@ -120,6 +132,8 @@ export default function App() {
           toasts={toasts}
           onDismissToast={removeToast}
           chatMessages={chatMessages}
+          reactions={reactions}
+          onSendReaction={sendReaction}
           roomSettings={roomSettings}
           personalSettings={personalSettings}
           waitingPeers={waitingPeers}
@@ -131,6 +145,11 @@ export default function App() {
           onHostMutePeer={hostMutePeer}
           onHostKickPeer={hostKickPeer}
           onHostEndMeeting={hostEndMeeting}
+          onAssignCoHost={assignCoHost}
+          onTransferHost={transferHost}
+          stageAnnouncement={stageAnnouncement}
+          onBroadcastAnnouncement={broadcastAnnouncement}
+          onHostLowerAllHands={hostLowerAllHands}
           onUpdatePersonalSettings={updatePersonalSettings}
           onToggleAudio={toggleAudio}
           onToggleVideo={toggleVideo}

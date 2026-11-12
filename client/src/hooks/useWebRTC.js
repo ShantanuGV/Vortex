@@ -100,6 +100,10 @@ export function useWebRTC() {
   const [isConnected, setIsConnected] = useState(false);
   const [roomId, setRoomId] = useState(null);
   const [userName, setUserName] = useState('');
+  const [isCoHost, setIsCoHost] = useState(false);
+  const [reactions, setReactions] = useState([]);
+  const [passwordRequired, setPasswordRequired] = useState(false);
+  const [stageAnnouncement, setStageAnnouncement] = useState(null); // Executive Stage Broadcast Banner
 
   // Host Admission / Waiting Room states
   const [isWaitingForAdmission, setIsWaitingForAdmission] = useState(false);
@@ -606,7 +610,7 @@ export function useWebRTC() {
   // ---------------------------------------------------------------------------
   // Join Meeting Room Flow
   // ---------------------------------------------------------------------------
-  const joinRoom = useCallback(async ({ roomId: targetRoomId, userName: name, initialAudioMuted = false, initialVideoOff = false }) => {
+  const joinRoom = useCallback(async ({ roomId: targetRoomId, userName: name, initialAudioMuted = false, initialVideoOff = false, password = '' }) => {
     setRoomId(targetRoomId);
     setUserName(name);
 
@@ -653,7 +657,8 @@ export function useWebRTC() {
         userName: name,
         isAudioMuted: startMuted,
         isVideoOff: startVideoOff,
-        hostSecret: savedHostSecret
+        hostSecret: savedHostSecret,
+        password: password ? password.trim() : ''
       });
     });
 
@@ -671,6 +676,30 @@ export function useWebRTC() {
       setAdmissionStatus('denied');
       setDeniedReason(message || 'The host declined your request to join.');
       addToast(message || 'Host declined entry request.', 'error');
+    });
+
+    // Join Error (e.g. password required or incorrect password)
+    socket.on('join-error', ({ message, requiresPassword: reqPass }) => {
+      addToast(message || 'Could not join meeting.', 'error', 4500);
+      if (reqPass) {
+        setPasswordRequired(true);
+      }
+      setIsConnected(false);
+      socket.disconnect();
+    });
+
+    // Co-host promotion/demotion (F-13)
+    socket.on('cohost-status-changed', ({ isCoHost: flag }) => {
+      setIsCoHost(Boolean(flag));
+      addToast(flag ? 'You were assigned as meeting co-host!' : 'Co-host privileges removed.', 'info', 3500);
+    });
+
+    // Real-time emoji reaction received (F-01)
+    socket.on('reaction-received', (reaction) => {
+      setReactions((prev) => [...prev, reaction]);
+      setTimeout(() => {
+        setReactions((prev) => prev.filter((r) => r.id !== reaction.id));
+      }, 3000);
     });
 
     // Knocking notification for Host
@@ -696,11 +725,14 @@ export function useWebRTC() {
     });
 
     // Room Snapshot with Admin & Authority state + Existing Producers
-    socket.on('room-snapshot', async ({ participants, isHost: hostStatus, hostSecret: receivedHostSecret, hostId: currentHostId, settings, waitingList, existingProducers = [] }) => {
+    socket.on('room-snapshot', async ({ participants, isHost: hostStatus, hostSecret: receivedHostSecret, hostId: currentHostId, settings, waitingList, existingProducers = [], announcement = null }) => {
       setIsWaitingForAdmission(false);
       setAdmissionStatus(null);
       setIsHost(hostStatus);
       setHostId(currentHostId);
+      if (announcement) {
+        setStageAnnouncement(announcement);
+      }
 
       if (hostStatus && receivedHostSecret) {
         hostSecretRef.current = receivedHostSecret;
@@ -1027,10 +1059,43 @@ export function useWebRTC() {
             } else {
               setActiveSpeakerId((curr) => (curr === delta.peerId ? null : curr));
             }
+          } else if (delta.type === 'participant-updated') {
+            if (next[delta.peerId]) {
+              next[delta.peerId] = {
+                ...next[delta.peerId],
+                ...delta.updates
+              };
+            }
+          } else if (delta.type === 'host-transferred') {
+            if (next[delta.oldHostId]) {
+              next[delta.oldHostId].isHost = false;
+              next[delta.oldHostId].role = 'participant';
+            }
+            if (next[delta.newHostId]) {
+              next[delta.newHostId].isHost = true;
+              next[delta.newHostId].role = 'host';
+            }
+            setHostId(delta.newHostId);
+            setIsHost(socket.id === delta.newHostId);
+          } else if (delta.type === 'all-hands-lowered') {
+            setIsHandRaised(false);
+            Object.keys(next).forEach((pid) => {
+              if (next[pid]) {
+                next[pid] = { ...next[pid], isHandRaised: false };
+              }
+            });
           }
         });
         return next;
       });
+    });
+
+    // Executive Stage Announcement updated
+    socket.on('stage-announcement-updated', ({ announcement }) => {
+      setStageAnnouncement(announcement);
+      if (announcement) {
+        addToast(`Stage Announcement: ${announcement}`, 'info', 5000);
+      }
     });
 
     // New in-call chat message
@@ -1182,48 +1247,50 @@ export function useWebRTC() {
     }
   }, [isHandRaised]);
 
-  const sendChatMessage = useCallback((message) => {
+  const sendChatMessage = useCallback((message, targetPeerId = null) => {
     if (!message || !message.trim()) return;
-    if (!isHost && !roomSettings.allowChat) {
+    if (!isHost && !isCoHost && !roomSettings.allowChat) {
       addToast('In-call chat is turned off by the host.', 'warning');
       return;
     }
     if (socketRef.current) {
-      socketRef.current.emit('send-chat', { message: message.trim() });
+      socketRef.current.emit('send-chat', { message: message.trim(), targetPeerId });
     }
-  }, [isHost, roomSettings.allowChat, addToast]);
+  }, [isHost, isCoHost, roomSettings.allowChat, addToast]);
 
   // ---------------------------------------------------------------------------
-  // Admin Host Controls
+  // Admin Host & Co-Host Controls
   // ---------------------------------------------------------------------------
+  const isMeetingAdmin = isHost || isCoHost;
+
   const updateRoomSettings = useCallback((newSettings) => {
-    if (!isHost) return;
+    if (!isHost && !isCoHost) return;
     setRoomSettings(newSettings);
     if (socketRef.current) {
       socketRef.current.emit('update-room-settings', { settings: newSettings });
     }
-  }, [isHost]);
+  }, [isHost, isCoHost]);
 
   const hostMuteAll = useCallback(() => {
-    if (!isHost) return;
+    if (!isMeetingAdmin) return;
     if (socketRef.current) {
       socketRef.current.emit('host-mute-all');
     }
-  }, [isHost]);
+  }, [isMeetingAdmin]);
 
   const hostMutePeer = useCallback((targetPeerId) => {
-    if (!isHost) return;
+    if (!isMeetingAdmin) return;
     if (socketRef.current) {
       socketRef.current.emit('host-mute-peer', { targetPeerId });
     }
-  }, [isHost]);
+  }, [isMeetingAdmin]);
 
   const hostKickPeer = useCallback((targetPeerId) => {
-    if (!isHost) return;
+    if (!isMeetingAdmin) return;
     if (socketRef.current) {
       socketRef.current.emit('host-kick-peer', { targetPeerId });
     }
-  }, [isHost]);
+  }, [isMeetingAdmin]);
 
   const hostEndMeeting = useCallback(() => {
     if (!isHost) return;
@@ -1233,25 +1300,64 @@ export function useWebRTC() {
   }, [isHost]);
 
   const admitPeer = useCallback((targetPeerId) => {
-    if (!isHost) return;
+    if (!isMeetingAdmin) return;
     if (socketRef.current) {
       socketRef.current.emit('admit-peer', { targetPeerId });
     }
-  }, [isHost]);
+  }, [isMeetingAdmin]);
 
   const denyPeer = useCallback((targetPeerId) => {
-    if (!isHost) return;
+    if (!isMeetingAdmin) return;
     if (socketRef.current) {
       socketRef.current.emit('deny-peer', { targetPeerId });
     }
-  }, [isHost]);
+  }, [isMeetingAdmin]);
 
   const admitAllPeers = useCallback(() => {
-    if (!isHost) return;
+    if (!isMeetingAdmin) return;
     if (socketRef.current) {
       socketRef.current.emit('admit-all-peers');
     }
+  }, [isMeetingAdmin]);
+
+  // Host Feature: Assign Co-Host (F-13)
+  const assignCoHost = useCallback((targetPeerId, coHostFlag) => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('assign-cohost', { targetPeerId, isCoHost: coHostFlag });
+    }
   }, [isHost]);
+
+  // Host Feature: Manual Host Transfer (F-12)
+  const transferHost = useCallback((targetPeerId) => {
+    if (!isHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('transfer-host', { targetPeerId });
+    }
+  }, [isHost]);
+
+  // Collaboration Feature: Emoji Reactions (F-01)
+  const sendReaction = useCallback((emoji) => {
+    if (socketRef.current) {
+      socketRef.current.emit('send-reaction', { emoji });
+    }
+  }, []);
+
+  // Host Stage Announcement Broadcast
+  const broadcastAnnouncement = useCallback((message) => {
+    if (!isHost && !isCoHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('broadcast-announcement', { message });
+    }
+  }, [isHost, isCoHost]);
+
+  // Host Lower All Raised Hands
+  const hostLowerAllHands = useCallback(() => {
+    if (!isHost && !isCoHost) return;
+    if (socketRef.current) {
+      socketRef.current.emit('host-lower-all-hands');
+    }
+  }, [isHost, isCoHost]);
 
   const cancelWaiting = useCallback(() => {
     if (socketRef.current) {
@@ -1414,18 +1520,19 @@ export function useWebRTC() {
     return ids;
   }, [isHost, hostId, peerList, currentPage, pageSize, activeSpeakerId, pinnedPeerId, roster]);
 
-  // Emit subscription engine updates for dynamic layer allocation (ISSUE-011 / ARCH-003)
+  // Emit subscription engine updates for dynamic layer allocation (ISSUE-011 / ARCH-003 / F-21)
   useEffect(() => {
     if (!socketRef.current || !isConnected) return;
     const timer = setTimeout(() => {
       socketRef.current?.emit('update-subscription-preferences', {
         pinnedPeerId,
         visiblePeerIds: Array.from(visiblePeerIds),
-        networkQuality: networkStats.quality
+        networkQuality: personalSettings?.lowDataMode ? 'poor' : networkStats.quality,
+        lowDataMode: Boolean(personalSettings?.lowDataMode)
       });
     }, 150);
     return () => clearTimeout(timer);
-  }, [visiblePeerIds, pinnedPeerId, networkStats.quality, isConnected]);
+  }, [visiblePeerIds, pinnedPeerId, networkStats.quality, personalSettings?.lowDataMode, isConnected]);
 
   const telemetry = useMemo(() => {
     const totalParticipants = 1 + Object.keys(roster).length;
@@ -1466,6 +1573,8 @@ export function useWebRTC() {
     removeToast,
     // Authority & Settings
     isHost,
+    isCoHost,
+    isMeetingAdmin,
     hostId,
     roomSettings,
     personalSettings,
@@ -1474,6 +1583,15 @@ export function useWebRTC() {
     hostMutePeer,
     hostKickPeer,
     hostEndMeeting,
+    assignCoHost,
+    transferHost,
+    sendReaction,
+    reactions,
+    passwordRequired,
+    setPasswordRequired,
+    stageAnnouncement,
+    broadcastAnnouncement,
+    hostLowerAllHands,
     // Host Admission / Waiting Room
     isWaitingForAdmission,
     admissionStatus,

@@ -280,16 +280,16 @@ UI is permanently dark. No user preference or system theme detection.
 > [!TIP]
 > Focus on features that unlock the most usage value with the least complexity first.
 
-| Priority | Feature | Why |
-|---|---|---|
-| 1 | F-13 · Co-host assignment | Backend already exists; just needs 1 event + UI |
-| 2 | F-12 · Manual host transfer | Reuses existing migration code |
-| 3 | F-10 · Private DMs | Low effort, high social value |
-| 4 | F-01 · Emoji reactions | Most visible, very low effort |
-| 5 | F-14 · Meeting password | Security-critical for public deployments |
-| 6 | F-21 · Low data mode | Wire existing subscription engine to client |
-| 7 | F-25 · Server-side AudioLevelObserver | Improves VAD accuracy, eliminates BUG-007 |
-| 8 | F-02 · Background blur | High user demand, MediaPipe available |
-| 9 | F-05 · Closed captions | Web Speech API first pass is achievable |
-| 10 | F-07 · Polls | High meeting value, moderate effort |
+| Priority | Feature | Status | Notes |
+|---|---|---|---|
+| 1 | F-13 · Co-host assignment | ✅ IMPLEMENTED | `assign-cohost` event, elevated admin permissions, UI co-host badge & button |
+| 2 | F-12 · Manual host transfer | ✅ IMPLEMENTED | `transfer-host` event, cryptographic hostSecret rotation, UI host transfer action |
+| 3 | F-10 · Private DMs | ✅ IMPLEMENTED | Targeted private messaging in `send-chat`, recipient selector, (Private) badge |
+| 4 | F-01 · Emoji reactions | ✅ IMPLEMENTED | Real-time emoji popover + floating animated reaction bubbles over video |
+| 5 | F-14 · Meeting password | ✅ IMPLEMENTED | Password/PIN protection, lobby prompt, host settings configuration |
+| 6 | F-21 · Low data mode | ✅ IMPLEMENTED | Personal settings toggle wired to SimulcastManager & layer downscaling |
+| 7 | F-25 · Server-side AudioLevelObserver | ✅ IMPLEMENTED | C++ Mediasoup AudioLevelObserver active on room router (-80 dB, 800ms) |
+| 8 | F-02 · Background blur | Planned (Next) | MediaPipe Selfie Segmentation |
+| 9 | F-05 · Closed captions | Planned (Next) | Web Speech API live transcription |
+| 10 | F-07 · Polls | Planned (Next) | In-meeting multi-choice polling |
 

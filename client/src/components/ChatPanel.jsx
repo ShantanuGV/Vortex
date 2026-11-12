@@ -6,10 +6,12 @@ export default function ChatPanel({
   chatMessages,
   isHost,
   roomSettings,
+  roster = {},
   onSendMessage,
   onClose
 }) {
   const [inputText, setInputText] = useState('');
+  const [targetPeerId, setTargetPeerId] = useState(''); // '' = Everyone
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -19,12 +21,13 @@ export default function ChatPanel({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (inputText.trim()) {
-      onSendMessage(inputText);
+      onSendMessage(inputText, targetPeerId || null);
       setInputText('');
     }
   };
 
   const isChatDisabled = !isHost && roomSettings && !roomSettings.allowChat;
+  const participantList = Object.values(roster);
 
   return (
     <div
@@ -172,6 +175,20 @@ export default function ChatPanel({
                     >
                       {msg.senderName} {msg.isHost && '(Host)'}
                     </span>
+                    {msg.isPrivate && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          backgroundColor: 'rgba(158, 171, 157, 0.25)',
+                          color: '#9EAB9D',
+                          padding: '1px 6px',
+                          borderRadius: '8px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        {msg.targetName ? `Private to ${msg.targetName}` : 'Private'}
+                      </span>
+                    )}
                   </div>
                   <span style={{ fontSize: '11px', color: '#8A9497' }}>
                     {msg.timestamp}
@@ -195,54 +212,82 @@ export default function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input box */}
+      {/* Recipient Selector (F-10 Private DMs) & Input Box */}
       <form
         onSubmit={handleSubmit}
         style={{
-          padding: '16px',
+          padding: '12px 16px 16px 16px',
           borderTop: '1px solid #3A4245',
           display: 'flex',
-          alignItems: 'center',
-          gap: '10px'
+          flexDirection: 'column',
+          gap: '8px'
         }}
       >
-        <input
-          type="text"
-          disabled={isChatDisabled}
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          placeholder={isChatDisabled ? 'Chat is turned off by host' : 'Send a message...'}
-          style={{
-            flex: 1,
-            backgroundColor: isChatDisabled ? '#252B2D' : '#2E3538',
-            border: '1px solid #3A4245',
-            borderRadius: '24px',
-            padding: '10px 16px',
-            color: isChatDisabled ? '#8A9497' : '#F4F3EF',
-            fontSize: '14px',
-            outline: 'none',
-            cursor: isChatDisabled ? 'not-allowed' : 'text'
-          }}
-        />
-        <button
-          type="submit"
-          disabled={isChatDisabled || !inputText.trim()}
-          style={{
-            backgroundColor: !isChatDisabled && inputText.trim() ? '#9EAB9D' : '#2E3538',
-            color: !isChatDisabled && inputText.trim() ? '#252B2D' : '#8A9497',
-            border: '1px solid #3A4245',
-            borderRadius: '50%',
-            width: '42px',
-            height: '42px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: !isChatDisabled && inputText.trim() ? 'pointer' : 'default',
-            transition: 'background-color 0.2s, color 0.2s'
-          }}
-        >
-          <Send size={18} />
-        </button>
+        {participantList.length > 0 && !isChatDisabled && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#9EAB9D' }}>
+            <span>Send to:</span>
+            <select
+              value={targetPeerId}
+              onChange={(e) => setTargetPeerId(e.target.value)}
+              style={{
+                backgroundColor: '#2E3538',
+                border: '1px solid #3A4245',
+                color: '#F4F3EF',
+                borderRadius: '8px',
+                padding: '3px 8px',
+                fontSize: '12px',
+                outline: 'none'
+              }}
+            >
+              <option value="">Everyone</option>
+              {participantList.map((p) => (
+                <option key={p.peerId} value={p.peerId}>
+                  {p.userName} {p.isHost ? '(Host)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <input
+            type="text"
+            disabled={isChatDisabled}
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            placeholder={isChatDisabled ? 'Chat is turned off by host' : targetPeerId ? 'Send private message...' : 'Send a message...'}
+            style={{
+              flex: 1,
+              backgroundColor: isChatDisabled ? '#252B2D' : '#2E3538',
+              border: '1px solid #3A4245',
+              borderRadius: '24px',
+              padding: '10px 16px',
+              color: isChatDisabled ? '#8A9497' : '#F4F3EF',
+              fontSize: '14px',
+              outline: 'none',
+              cursor: isChatDisabled ? 'not-allowed' : 'text'
+            }}
+          />
+          <button
+            type="submit"
+            disabled={isChatDisabled || !inputText.trim()}
+            style={{
+              backgroundColor: !isChatDisabled && inputText.trim() ? '#9EAB9D' : '#2E3538',
+              color: !isChatDisabled && inputText.trim() ? '#252B2D' : '#8A9497',
+              border: '1px solid #3A4245',
+              borderRadius: '50%',
+              width: '42px',
+              height: '42px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: !isChatDisabled && inputText.trim() ? 'pointer' : 'default',
+              transition: 'background-color 0.2s, color 0.2s'
+            }}
+          >
+            <Send size={18} />
+          </button>
+        </div>
       </form>
     </div>
   );

@@ -500,6 +500,19 @@ export default function SettingsModal({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
                   <div>
+                    <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Low Data Mode (F-21)</div>
+                    <div style={{ fontSize: '12px', color: '#8A9497' }}>Optimizes bandwidth by capping incoming streams to 180p and prioritizing crystal-clear audio</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={personalSettings.lowDataMode ?? false}
+                    onChange={(e) => onUpdatePersonalSettings({ lowDataMode: e.target.checked })}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9EAB9D' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', backgroundColor: '#2E3538', border: '1px solid #3A4245', borderRadius: '10px' }}>
+                  <div>
                     <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Mirror my video</div>
                     <div style={{ fontSize: '12px', color: '#8A9497' }}>Flips your self-view like a mirror</div>
                   </div>
@@ -669,6 +682,33 @@ export default function SettingsModal({
                         checked={roomSettings.isLocked ?? false}
                         onChange={() => handleHostToggle('isLocked')}
                         style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#EA4335' }}
+                      />
+                    </div>
+
+                    {/* Meeting Password / PIN (F-14) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderBottom: '1px solid #3A4245', paddingBottom: '14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', color: '#F4F3EF', fontWeight: '500' }}>Meeting Password / PIN</div>
+                          <div style={{ fontSize: '12px', color: '#8A9497' }}>Require participants to provide a password before entering</div>
+                        </div>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Leave blank for open access (no password)"
+                        value={roomSettings.password || ''}
+                        onChange={(e) => onUpdateRoomSettings({ ...roomSettings, password: e.target.value })}
+                        style={{
+                          width: '100%',
+                          backgroundColor: '#252B2D',
+                          border: '1px solid #3A4245',
+                          borderRadius: '8px',
+                          padding: '8px 12px',
+                          color: '#F4F3EF',
+                          fontSize: '13px',
+                          outline: 'none',
+                          marginTop: '4px'
+                        }}
                       />
                     </div>
 

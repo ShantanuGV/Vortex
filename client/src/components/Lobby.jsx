@@ -7,10 +7,12 @@ export default function Lobby({
   isWaiting = false,
   admissionStatus = null,
   deniedReason = '',
+  passwordRequired = false,
   onCancelWaiting = () => {}
 }) {
   const [userName, setUserName] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [password, setPassword] = useState('');
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [previewStream, setPreviewStream] = useState(null);
@@ -136,7 +138,8 @@ export default function Lobby({
       roomId: roomId.trim().toLowerCase(),
       userName: userName.trim(),
       isAudioMuted,
-      isVideoOff
+      isVideoOff,
+      password: password.trim()
     });
   };
 
@@ -659,6 +662,40 @@ export default function Lobby({
                         <RefreshCw size={14} /> New
                       </button>
                     </div>
+                  </div>
+
+                  {/* Optional or Required Meeting Password (F-14) */}
+                  <div>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '11px',
+                        color: passwordRequired ? '#F28B82' : '#9EAB9D',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                        fontWeight: '600',
+                        marginBottom: '8px'
+                      }}
+                    >
+                      {passwordRequired ? 'Meeting Password (Required)' : 'Meeting Password (If Protected)'}
+                    </label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Optional meeting PIN or password"
+                      style={{
+                        width: '100%',
+                        backgroundColor: '#252B2D',
+                        border: passwordRequired ? '1px solid #EA4335' : '1px solid #3A4245',
+                        borderRadius: '10px',
+                        padding: '12px 16px',
+                        color: '#F4F3EF',
+                        fontSize: '15px',
+                        outline: 'none',
+                        transition: 'border-color 0.2s'
+                      }}
+                    />
                   </div>
 
                   <button
